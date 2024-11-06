@@ -23,25 +23,33 @@ use http_downloader::{
     HttpDownloaderBuilder,
 };
 
-static DOWNLOADER_CREATOR: Lazy<fn() -> HttpDownloaderBuilder> = Lazy::new(|| create_downloader);
+static DOWNLOADER_CREATOR: Lazy<
+    fn(url: Url, save_dir: PathBuf, file_name: Option<String>) -> HttpDownloaderBuilder,
+> = Lazy::new(|| create_downloader);
 static GLOBAL_STATUS_LIST: Lazy<Arc<Mutex<HashMap<String, NalaiInfo>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-fn create_downloader() -> HttpDownloaderBuilder {
-    let save_dir = PathBuf::from("C:/download");
-    let test_url =
-        Url::parse("https://mirrors.tuna.tsinghua.edu.cn/debian-cd/current/amd64/iso-cd/debian-12.7.0-amd64-netinst.iso")
-            .unwrap();
-    HttpDownloaderBuilder::new(test_url, save_dir)
+fn create_downloader(
+    url: Url,
+    save_dir: PathBuf,
+    file_name: Option<String>,
+) -> HttpDownloaderBuilder {
+    HttpDownloaderBuilder::new(url, save_dir)
         .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
         .download_connection_count(NonZeroU8::new(8).unwrap())
+        .file_name(file_name)
     // .file_name(Some("file_name.zip".to_string()))
 }
 
 #[handler]
-async fn start_download() -> String {
-    let (mut downloader, (status_state, speed_state, speed_limiter, ..)) = (DOWNLOADER_CREATOR)()
-        .build((
+async fn start_download(req: &mut Request) -> String {
+    let file_name: Option<String> = Some(req.query::<String>("file_name")).unwrap_or(None);
+    let save_dir = req.query::<String>("save_dir").unwrap_or_default();
+    let save_dir = PathBuf::from(save_dir);
+    let url = req.query::<String>("url").unwrap_or_default();
+    let url = Url::parse(&url).unwrap();
+    let (mut downloader, (status_state, speed_state, speed_limiter, ..)) =
+        (DOWNLOADER_CREATOR)(url, save_dir, file_name).build((
             DownloadStatusTrackerExtension { log: true },
             DownloadSpeedTrackerExtension { log: true },
             DownloadSpeedLimiterExtension::new(None),
