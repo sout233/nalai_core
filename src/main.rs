@@ -163,8 +163,7 @@ async fn start_download(req: &mut Request) -> String {
 
     info!("Start downloading until the end，开始下载直到结束");
 
-    let result = format!("Start downloading{:?}", download_future.await.unwrap());
-    result
+    "no result (todo)".to_string()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
