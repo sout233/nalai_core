@@ -16,6 +16,7 @@ use http_downloader::{
     HttpDownloaderBuilder,
 };
 
+
 static DOWNLOADER_CREATOR: Lazy<fn() -> HttpDownloaderBuilder> = Lazy::new(|| create_downloader);
 
 fn create_downloader() -> HttpDownloaderBuilder {
@@ -23,7 +24,8 @@ fn create_downloader() -> HttpDownloaderBuilder {
     let test_url = Url::parse("https://mirrors.tuna.tsinghua.edu.cn/github-release/VSCodium/vscodium/1.95.1.24307/VSCodium-1.95.1.24307-src.tar.gz").unwrap();
     HttpDownloaderBuilder::new(test_url, save_dir)
         .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
-        .download_connection_count(NonZeroU8::new(3).unwrap())
+        .download_connection_count(NonZeroU8::new(8).unwrap())
+        .file_name(Some("file_name.zip".to_string()))
 }
 
 #[handler]
@@ -81,7 +83,7 @@ async fn start_download() -> String {
         tokio::time::sleep(Duration::from_secs(2)).await;
         info!("Start speed limit，开始限速");
         speed_limiter.change_speed(Some(1024 * 1024 * 2)).await;
-        downloader.cancel().await; // 取消下载
+        // downloader.cancel().await; // 取消下载
         tokio::time::sleep(Duration::from_secs(4)).await;
         info!("Remove the download speed limit，解除速度限制");
         speed_limiter.change_speed(None).await;
