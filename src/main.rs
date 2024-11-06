@@ -8,6 +8,7 @@ use std::fmt::Display;
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
@@ -59,7 +60,6 @@ async fn start_download() -> String {
         .to_string();
     let id = general_purpose::STANDARD.encode(file_path.as_bytes());
 
-
     // let _status = status_state.status(); // get download status， 获取状态
     let mut status_receiver = status_state.status_receiver; //status watcher，状态监听器
 
@@ -68,33 +68,34 @@ async fn start_download() -> String {
 
     tokio::spawn({
         let id = id.clone();
-        
+
         async move {
-        while status_receiver.changed().await.is_ok() {
-            let status = status_receiver.borrow().clone();
+            while status_receiver.changed().await.is_ok() {
+                let status = status_receiver.borrow().clone();
 
-            let mut info = GLOBAL_STATUS_LIST
-                .lock()
-                .await
-                .get(&id)
-                .unwrap_or(&NalaiInfo::default())
-                .clone();
+                let mut info = GLOBAL_STATUS_LIST
+                    .lock()
+                    .await
+                    .get(&id)
+                    .unwrap_or(&NalaiInfo::default())
+                    .clone();
 
-            info.status = format!("{:?}", status.clone());
+                info.status = format!("{:?}", status.clone());
 
-            GLOBAL_STATUS_LIST
-                .lock()
-                .await
-                .insert(id.clone(), info.clone());
+                GLOBAL_STATUS_LIST
+                    .lock()
+                    .await
+                    .insert(id.clone(), info.clone());
 
-            info!(
-                "Insert status for: {:?}, status: {:?}, file_path: {}",
-                id, info, file_path
-            );
+                info!(
+                    "Insert status for: {:?}, status: {:?}, file_path: {}",
+                    id, info, file_path
+                );
 
-            tokio::time::sleep(Duration::from_millis(1000)).await;
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+            }
         }
-    }});
+    });
 
     // 打印下载进度
     tokio::spawn({
@@ -128,7 +129,7 @@ async fn start_download() -> String {
                     .unwrap_or(&NalaiInfo::default())
                     .clone();
 
-                info.progress = progress;
+                info.progress = progress * 100 / total_len.unwrap();
 
                 GLOBAL_STATUS_LIST
                     .lock()
@@ -200,7 +201,9 @@ async fn main() {
         Server::new(acceptor).serve(router).await;
     });
 
-    loop {}
+    loop {
+        thread::sleep(Duration::from_secs(10));
+    }
 
     // let dec = download_future.await?;
     // info!("Downloading end cause: {:?}", dec);
