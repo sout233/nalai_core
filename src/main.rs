@@ -11,7 +11,7 @@ use url::Url;
 static GLOBAL_DOWNLOADERS: Lazy<Mutex<HashMap<String, NalaiDownloader>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-#[derive(Debug,serde::Serialize,serde::Deserialize)]
+#[derive(Debug,serde::Serialize,serde::Deserialize,Clone, Copy)]
 struct NalaiDownloader{
     progress: u64,
     total_size: NonZero<u64>,
@@ -88,10 +88,14 @@ async fn start_download()->&'static str {
 }
 
 #[handler]
-async fn get_downloader_status(req: &mut Request)->String{
-    let id:String = req.param("id").unwrap();
-    let lock = GLOBAL_DOWNLOADERS.lock().await.get(id.as_str()).unwrap();
-    json!(lock).to_string()
+async fn get_downloader_status(req: &mut Request,res: &mut Response){
+    let id = req.query::<String>("id").unwrap_or_default();
+
+    info!("Get status for id: {}", id);
+
+    let status = GLOBAL_DOWNLOADERS.lock().await.get(&id).cloned().unwrap();
+
+    res.render(Json(status))
 }
 
 #[tokio::main]
