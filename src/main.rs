@@ -4,11 +4,12 @@ use http_downloader::{
     bson_file_archiver::{ArchiveFilePath, BsonFileArchiverBuilder},
     speed_limiter::DownloadSpeedLimiterExtension,
     speed_tracker::DownloadSpeedTrackerExtension,
-    status_tracker::DownloadStatusTrackerExtension,
-    HttpDownloaderBuilder,
+    status_tracker::{DownloadStatusTrackerExtension, DownloaderStatus},
+    ExtendedHttpFileDownloader, HttpDownloaderBuilder,
 };
 use once_cell::sync::Lazy;
 use salvo::prelude::*;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     collections::HashMap,
@@ -22,15 +23,31 @@ use tokio::sync::Mutex;
 use tracing::info;
 use url::Url;
 
-static GLOBAL_DOWNLOADERS: Lazy<Mutex<HashMap<String, NalaiStatus>>> =
+static GLOBAL_WRAPPERS: Lazy<Mutex<HashMap<String, NalaiWrapper>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-struct NalaiStatus {
+#[derive(Clone)]
+struct NalaiWrapper {
+    downloader: Arc<Mutex<ExtendedHttpFileDownloader>>,
+    status: NalaiDownloadInfo,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct NalaiDownloadInfo {
     downloaded_bytes: u64,
     total_size: NonZero<u64>,
     file_name: String,
     url: String,
+    status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+enum StatusWrapper{
+    NoStart,
+    Running,
+    Pending,
+    Error(String),
+    Finished,
 }
 
 #[handler]
@@ -75,15 +92,17 @@ async fn start_download(req: &mut Request, res: &mut Response) {
     // 启动下载任务并立即返回
     tokio::spawn({
         let id = id.clone();
+        let downloader = Arc::new(Mutex::new(downloader));
         async move {
             info!("Prepare download，准备下载");
-            let download_future = downloader.prepare_download().unwrap();
+            let download_future = downloader.lock().await.prepare_download().unwrap();
 
             // 打印下载进度
             tokio::spawn({
-                let mut downloaded_len_receiver = downloader.downloaded_len_receiver().clone();
+                let mut downloaded_len_receiver =
+                    downloader.lock().await.downloaded_len_receiver().clone();
 
-                let total_size_future = downloader.total_size_future();
+                let total_size_future = downloader.lock().await.total_size_future();
 
                 async move {
                     let total_len = total_size_future.await;
@@ -103,23 +122,27 @@ async fn start_download(req: &mut Request, res: &mut Response) {
                                 total_len
                             );
 
-                            let full_path = downloader.get_file_path();
+                            let full_path = downloader.lock().await.get_file_path();
 
                             let file_name =
                                 full_path.file_name().unwrap().to_str().unwrap().to_string();
 
-                            let config = downloader.config();
+                            let d = downloader.lock().await;
+                            let config = d.config();
                             let url_text = config.url.to_string();
 
-                            GLOBAL_DOWNLOADERS.lock().await.insert(
-                                id.clone(),
-                                NalaiStatus {
+                            let wrapper = NalaiWrapper {
+                                downloader: downloader.clone(),
+                                status: NalaiDownloadInfo {
                                     downloaded_bytes: progress,
                                     total_size: total_len,
                                     file_name: file_name,
                                     url: url_text,
+                                    status: format!("{:?}",status_state.status())
                                 },
-                            );
+                            };
+
+                            GLOBAL_WRAPPERS.lock().await.insert(id.clone(), wrapper);
                         }
                         tokio::time::sleep(Duration::from_millis(1000)).await;
                     }
@@ -136,6 +159,16 @@ async fn start_download(req: &mut Request, res: &mut Response) {
     res.render(result.to_string());
 }
 
+fn convet_status(status: DownloaderStatus) -> StatusWrapper {
+    match status {
+        DownloaderStatus::NoStart => StatusWrapper::NoStart,
+        DownloaderStatus::Running => StatusWrapper::Running,
+        DownloaderStatus::Pending(_) => StatusWrapper::Pending,
+        DownloaderStatus::Error(e) => StatusWrapper::Error(e.to_string()),
+        DownloaderStatus::Finished => StatusWrapper::Finished,
+    }
+}
+
 #[handler]
 async fn get_status(req: &mut Request, res: &mut Response) {
     let id = req.query::<String>("id");
@@ -144,17 +177,34 @@ async fn get_status(req: &mut Request, res: &mut Response) {
         Some(id) => {
             info!("Get status for id: {}", id);
 
-            let status = GLOBAL_DOWNLOADERS.lock().await.get(&id).cloned();
+            let wrapper = GLOBAL_WRAPPERS.lock().await.get(&id).cloned();
 
-            if status.is_none() {
+            if wrapper.is_none() {
                 res.render(json!({"error": "id not found"}).to_string());
                 return;
             }
+
+            let status = wrapper.unwrap().status.clone();
 
             res.render(Json(status))
         }
         None => res.render(json!({"error": "id is required"}).to_string()),
     }
+}
+
+#[handler]
+async fn stop_download(req: &mut Request, res: &mut Response) {
+    let id = req.query::<String>("id").unwrap_or_default();
+    let downloader = match GLOBAL_WRAPPERS.lock().await.get(&id) {
+        Some(dl) => dl.downloader.clone(),
+        None => {
+            res.render(json!({"error": "id not found"}).to_string());
+            return;
+        }
+    };
+    info!("Stop download for id: {}", id);
+    downloader.lock().await.cancel().await;
+    res.render(json!({"success": true}).to_string());
 }
 
 #[tokio::main]
@@ -166,7 +216,8 @@ async fn main() {
     tokio::spawn(async {
         let router = Router::new()
             .push(Router::with_path("/download").post(start_download))
-            .push(Router::with_path("/status").get(get_status));
+            .push(Router::with_path("/status").get(get_status))
+            .push(Router::with_path("/stop").post(stop_download));
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
         Server::new(acceptor).serve(router).await;
     });
