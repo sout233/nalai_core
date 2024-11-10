@@ -29,7 +29,7 @@ static GLOBAL_WRAPPERS: Lazy<Mutex<HashMap<String, NalaiWrapper>>> =
 #[derive(Clone)]
 struct NalaiWrapper {
     downloader: Arc<Mutex<ExtendedHttpFileDownloader>>,
-    status: NalaiDownloadInfo,
+    info: NalaiDownloadInfo,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -45,7 +45,7 @@ struct NalaiDownloadInfo {
 enum StatusWrapper{
     NoStart,
     Running,
-    Pending,
+    Pending(String),
     Error(String),
     Finished,
 }
@@ -133,7 +133,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
 
                             let wrapper = NalaiWrapper {
                                 downloader: downloader.clone(),
-                                status: NalaiDownloadInfo {
+                                info: NalaiDownloadInfo {
                                     downloaded_bytes: progress,
                                     total_size: total_len,
                                     file_name: file_name,
@@ -163,7 +163,7 @@ fn convet_status(status: DownloaderStatus) -> StatusWrapper {
     match status {
         DownloaderStatus::NoStart => StatusWrapper::NoStart,
         DownloaderStatus::Running => StatusWrapper::Running,
-        DownloaderStatus::Pending(_) => StatusWrapper::Pending,
+        DownloaderStatus::Pending(i) => StatusWrapper::Pending(format!("{:?}", i)),
         DownloaderStatus::Error(e) => StatusWrapper::Error(e.to_string()),
         DownloaderStatus::Finished => StatusWrapper::Finished,
     }
@@ -184,7 +184,7 @@ async fn get_status(req: &mut Request, res: &mut Response) {
                 return;
             }
 
-            let status = wrapper.unwrap().status.clone();
+            let status = wrapper.unwrap().info.clone();
 
             res.render(Json(status))
         }
