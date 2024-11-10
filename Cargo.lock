@@ -738,8 +738,6 @@ dependencies = [
 [[package]]
 name = "http-downloader"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a880a492dfb22ac00ba40287238c8d4a2276e2e93a952cbcc6c12f661c7b847"
 dependencies = [
  "anyhow",
  "async-trait",

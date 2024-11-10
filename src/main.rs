@@ -23,8 +23,8 @@ use tokio::sync::Mutex;
 use tracing::info;
 use url::Url;
 
-static GLOBAL_WRAPPERS: Lazy<Mutex<HashMap<String, NalaiWrapper>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static GLOBAL_WRAPPERS: Lazy<Arc<Mutex<HashMap<String, NalaiWrapper>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 #[derive(Clone)]
 struct NalaiWrapper {
@@ -41,8 +41,20 @@ struct NalaiDownloadInfo {
     status: String,
 }
 
+impl Default for NalaiDownloadInfo {
+    fn default() -> Self {
+        Self {
+            downloaded_bytes: Default::default(),
+            total_size: NonZero::new(1).unwrap(),
+            file_name: Default::default(),
+            url: Default::default(),
+            status: Default::default(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
-enum StatusWrapper{
+enum StatusWrapper {
     NoStart,
     Running,
     Pending(String),
@@ -57,7 +69,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
     let url = req.query::<String>("url").unwrap_or_default();
     let url = Url::parse(&url).unwrap();
 
-    let (mut downloader, (status_state, speed_state, speed_limiter, ..)) =
+    let (mut downloader, (mut status_state, speed_state, speed_limiter, ..)) =
         HttpDownloaderBuilder::new(url, save_dir)
             .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
             .download_connection_count(NonZeroU8::new(3).unwrap())
@@ -88,6 +100,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
         .to_string();
 
     let id = general_purpose::STANDARD.encode(file_path.as_bytes());
+    let id2 = id.clone();
 
     // 启动下载任务并立即返回
     tokio::spawn({
@@ -97,12 +110,24 @@ async fn start_download(req: &mut Request, res: &mut Response) {
             info!("Prepare download，准备下载");
             let download_future = downloader.lock().await.prepare_download().unwrap();
 
+            let status_state_clone = status_state.clone();
+
             // 打印下载进度
             tokio::spawn({
                 let mut downloaded_len_receiver =
                     downloader.lock().await.downloaded_len_receiver().clone();
 
                 let total_size_future = downloader.lock().await.total_size_future();
+
+                let state_receiver = downloader.lock().await.downloading_state_receiver();
+
+                // TODO: 虽说先初始化一次是没什么毛病，但总感觉不够优雅
+                let wrapper = NalaiWrapper {
+                    downloader: downloader.clone(),
+                    info: NalaiDownloadInfo::default(),
+                };
+
+                GLOBAL_WRAPPERS.lock().await.insert(id.clone(), wrapper);
 
                 async move {
                     let total_len = total_size_future.await;
@@ -112,6 +137,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
                             total_len.get() as f64 / 1024_f64 / 1024_f64
                         );
                     }
+                    // 实则是接收下载进度的说
                     while downloaded_len_receiver.changed().await.is_ok() {
                         let progress = *downloaded_len_receiver.borrow();
                         if let Some(total_len) = total_len {
@@ -138,7 +164,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
                                     total_size: total_len,
                                     file_name: file_name,
                                     url: url_text,
-                                    status: format!("{:?}",status_state.status())
+                                    status: format!("{:?}", &status_state.status()),
                                 },
                             };
 
@@ -146,12 +172,71 @@ async fn start_download(req: &mut Request, res: &mut Response) {
                         }
                         tokio::time::sleep(Duration::from_millis(1000)).await;
                     }
+                    // 实则是接收状态更新的说
+                    while status_state.status_receiver.changed().await.is_ok() {
+                        println!("State update: {:?}", status_state.status());
+                        let progress = *downloaded_len_receiver.borrow();
+                        if let Some(total_len) = total_len {
+                            info!(
+                                "Download Progress: {} %，{}/{}",
+                                progress * 100 / total_len,
+                                progress,
+                                total_len
+                            );
+
+                            let full_path = downloader.lock().await.get_file_path();
+
+                            let file_name =
+                                full_path.file_name().unwrap().to_str().unwrap().to_string();
+
+                            let d = downloader.lock().await;
+                            let config = d.config();
+                            let url_text = config.url.to_string();
+
+                            let wrapper = NalaiWrapper {
+                                downloader: downloader.clone(),
+                                info: NalaiDownloadInfo {
+                                    downloaded_bytes: progress,
+                                    total_size: total_len,
+                                    file_name: file_name,
+                                    url: url_text,
+                                    status: format!("{:?}", status_state.status()),
+                                },
+                            };
+
+                            GLOBAL_WRAPPERS.lock().await.insert(id.clone(), wrapper);
+
+                            if let DownloaderStatus::Error(e) = status_state.status() {
+                                info!("Download error: {}", e);
+                                break;
+                            }
+                            if let DownloaderStatus::Finished = status_state.status() {
+                                info!("Download finished");
+                                break;
+                            }
+                        }
+
+                        tokio::time::sleep(Duration::from_millis(1000)).await;
+                    }
                 }
             });
 
             info!("Start downloading until the end，开始下载直到结束");
-            let dec = download_future.await.unwrap();
-            info!("Downloading end cause: {:?}", dec);
+            let dec = download_future.await;
+
+            let result = match dec {
+                Ok(msg) => format!("{:?}", msg),
+                Err(msg) => format!("{:?}", msg),
+            };
+            
+            {
+                let mut lock = GLOBAL_WRAPPERS.lock().await;
+                if let Some(wrapper) = lock.get_mut(&id2.clone()) {
+                    wrapper.info.status = format!("{:?}", result);
+                }
+            }
+
+            info!("Downloading end cause: {}", result);
         }
     });
 
@@ -177,7 +262,10 @@ async fn get_status(req: &mut Request, res: &mut Response) {
         Some(id) => {
             info!("Get status for id: {}", id);
 
-            let wrapper = GLOBAL_WRAPPERS.lock().await.get(&id).cloned();
+            let wrapper = {
+                let lock = GLOBAL_WRAPPERS.lock().await;
+                lock.get(&id).cloned()
+            };
 
             if wrapper.is_none() {
                 res.render(json!({"error": "id not found"}).to_string());
@@ -186,9 +274,11 @@ async fn get_status(req: &mut Request, res: &mut Response) {
 
             let status = wrapper.unwrap().info.clone();
 
-            res.render(Json(status))
+            res.render(Json(status));
         }
-        None => res.render(json!({"error": "id is required"}).to_string()),
+        None => {
+            res.render(json!({"error": "id is required"}).to_string());
+        },
     }
 }
 
