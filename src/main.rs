@@ -75,6 +75,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
         HttpDownloaderBuilder::new(url, save_dir)
             .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
             .download_connection_count(NonZeroU8::new(3).unwrap())
+            .downloaded_len_send_interval(Some(Duration::from_millis(100)))
             .build((
                 // 下载状态追踪扩展
                 // by cargo feature "status-tracker" enable
@@ -174,7 +175,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
 
                             GLOBAL_WRAPPERS.lock().await.insert(id.clone(), wrapper);
                         }
-                        tokio::time::sleep(Duration::from_millis(1000)).await;
+                        tokio::time::sleep(Duration::from_millis(100)).await;
                     }
                     // 实则是接收状态更新的说
                     while status_state.status_receiver.changed().await.is_ok() {
@@ -221,7 +222,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
                             }
                         }
 
-                        tokio::time::sleep(Duration::from_millis(1000)).await;
+                        tokio::time::sleep(Duration::from_millis(100)).await;
                     }
                     // 实则是接收下载速度的说
                     while speed_state.receiver.changed().await.is_ok() {
