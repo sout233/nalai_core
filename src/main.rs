@@ -39,6 +39,7 @@ struct NalaiDownloadInfo {
     file_name: String,
     url: String,
     status: String,
+    speed: u64,
 }
 
 impl Default for NalaiDownloadInfo {
@@ -49,6 +50,7 @@ impl Default for NalaiDownloadInfo {
             file_name: Default::default(),
             url: Default::default(),
             status: Default::default(),
+            speed: Default::default(),
         }
     }
 }
@@ -69,7 +71,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
     let url = req.query::<String>("url").unwrap_or_default();
     let url = Url::parse(&url).unwrap();
 
-    let (mut downloader, (mut status_state, speed_state, speed_limiter, ..)) =
+    let (mut downloader, (mut status_state, mut speed_state, speed_limiter, ..)) =
         HttpDownloaderBuilder::new(url, save_dir)
             .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
             .download_connection_count(NonZeroU8::new(3).unwrap())
@@ -101,6 +103,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
 
     let id = general_purpose::STANDARD.encode(file_path.as_bytes());
     let id2 = id.clone();
+    let id3 = id.clone();
 
     // 启动下载任务并立即返回
     tokio::spawn({
@@ -165,6 +168,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
                                     file_name: file_name,
                                     url: url_text,
                                     status: format!("{:?}", &status_state.status()),
+                                    speed: speed_state.download_speed(),
                                 },
                             };
 
@@ -201,6 +205,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
                                     file_name: file_name,
                                     url: url_text,
                                     status: format!("{:?}", status_state.status()),
+                                    speed: speed_state.download_speed(),
                                 },
                             };
 
@@ -218,6 +223,18 @@ async fn start_download(req: &mut Request, res: &mut Response) {
 
                         tokio::time::sleep(Duration::from_millis(1000)).await;
                     }
+                    // 实则是接收下载速度的说
+                    while speed_state.receiver.changed().await.is_ok() {
+                        let speed = speed_state.download_speed();
+                        GLOBAL_WRAPPERS
+                            .lock()
+                            .await
+                            .get_mut(&id2.clone())
+                            .unwrap()
+                            .info
+                            .speed = speed;
+                        info!("Download speed: {} bytes/s", speed)
+                    }
                 }
             });
 
@@ -228,10 +245,10 @@ async fn start_download(req: &mut Request, res: &mut Response) {
                 Ok(msg) => format!("{:?}", msg),
                 Err(msg) => format!("{:?}", msg),
             };
-            
+
             {
                 let mut lock = GLOBAL_WRAPPERS.lock().await;
-                if let Some(wrapper) = lock.get_mut(&id2.clone()) {
+                if let Some(wrapper) = lock.get_mut(&id3.clone()) {
                     wrapper.info.status = format!("{:?}", result);
                 }
             }
@@ -278,7 +295,7 @@ async fn get_status(req: &mut Request, res: &mut Response) {
         }
         None => {
             res.render(json!({"error": "id is required"}).to_string());
-        },
+        }
     }
 }
 
