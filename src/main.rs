@@ -250,7 +250,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
             {
                 let mut lock = GLOBAL_WRAPPERS.lock().await;
                 if let Some(wrapper) = lock.get_mut(&id3.clone()) {
-                    wrapper.info.status = format!("{:?}", result);
+                    wrapper.info.status = result.clone();
                 }
             }
 
