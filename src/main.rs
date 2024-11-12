@@ -114,8 +114,6 @@ async fn start_download(req: &mut Request, res: &mut Response) {
             info!("Prepare download，准备下载");
             let download_future = downloader.lock().await.prepare_download().unwrap();
 
-            let status_state_clone = status_state.clone();
-
             // 打印下载进度
             tokio::spawn({
                 let mut downloaded_len_receiver =
@@ -250,7 +248,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
             {
                 let mut lock = GLOBAL_WRAPPERS.lock().await;
                 if let Some(wrapper) = lock.get_mut(&id3.clone()) {
-                    wrapper.info.status = format!("{:?}", result);
+                    wrapper.info.status = result.clone();
                 }
             }
 
