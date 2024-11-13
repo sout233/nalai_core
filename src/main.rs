@@ -319,11 +319,11 @@ async fn get_all_info_api(_req: &mut Request, res: &mut Response) {
     res.render(Json(all_info));
 }
 
-async fn get_all_info() -> Vec<NalaiDownloadInfo> {
+async fn get_all_info() -> HashMap<String, NalaiDownloadInfo> {
     let lock = GLOBAL_WRAPPERS.lock().await;
-    let mut result = vec![];
-    for (_, wrapper) in lock.iter() {
-        result.push(wrapper.info.clone());
+    let mut result = HashMap::new();
+    for (id, wrapper) in lock.iter() {
+        result.insert(id.clone(), wrapper.info.clone());
     }
     result
 }
