@@ -313,12 +313,26 @@ async fn stop_download(req: &mut Request, res: &mut Response) {
     res.render(json!({"success": true}).to_string());
 }
 
-async fn save_to_file() -> Result<(), std::io::Error> {
+#[handler]
+async fn get_all_info_api(_req: &mut Request, res: &mut Response) {
+    let all_info = get_all_info().await;
+    res.render(Json(all_info));
+}
+
+async fn get_all_info() -> Vec<NalaiDownloadInfo> {
     let lock = GLOBAL_WRAPPERS.lock().await;
-    let mut file = std::fs::File::create("nalai_data.json")?;
+    let mut result = vec![];
     for (_, wrapper) in lock.iter() {
-        let info = wrapper.info.clone();
+        result.push(wrapper.info.clone());
     }
+    result
+}
+
+async fn save_to_file() -> Result<(), std::io::Error> {
+    let all_info = get_all_info().await;
+    let json_str = serde_json::to_string(&all_info).unwrap();
+    let file_path = PathBuf::from("nalai_info_data.json");
+    std::fs::write(file_path, json_str).unwrap();
     Ok(())
 }
 
@@ -332,7 +346,8 @@ async fn main() {
         let router = Router::new()
             .push(Router::with_path("/download").post(start_download))
             .push(Router::with_path("/status").get(get_status))
-            .push(Router::with_path("/stop").post(stop_download));
+            .push(Router::with_path("/stop").post(stop_download))
+            .push(Router::with_path("/all_info").get(get_all_info_api));
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
         Server::new(acceptor).serve(router).await;
     });
