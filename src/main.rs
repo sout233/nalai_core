@@ -313,6 +313,15 @@ async fn stop_download(req: &mut Request, res: &mut Response) {
     res.render(json!({"success": true}).to_string());
 }
 
+async fn save_to_file() -> Result<(), std::io::Error> {
+    let lock = GLOBAL_WRAPPERS.lock().await;
+    let mut file = std::fs::File::create("nalai_data.json")?;
+    for (_, wrapper) in lock.iter() {
+        let info = wrapper.info.clone();
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
@@ -327,6 +336,16 @@ async fn main() {
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
         Server::new(acceptor).serve(router).await;
     });
+
+    // ctrlc::set_handler(async || {
+    //     println!("收到中断信号，正在保存数据...");
+    //     if let Err(e) = save_to_file().await {
+    //         eprintln!("保存数据时出错: {}", e);
+    //     } else {
+    //         println!("数据已成功保存");
+    //     }
+    //     std::process::exit(0);
+    // }).unwrap();
 
     loop {
         thread::sleep(Duration::from_secs(1));
