@@ -271,7 +271,7 @@ fn convet_status(status: DownloaderStatus) -> StatusWrapper {
 }
 
 #[handler]
-async fn get_status(req: &mut Request, res: &mut Response) {
+async fn get_info(req: &mut Request, res: &mut Response) {
     let id = req.query::<String>("id");
 
     match id {
@@ -288,9 +288,9 @@ async fn get_status(req: &mut Request, res: &mut Response) {
                 return;
             }
 
-            let status = wrapper.unwrap().info.clone();
+            let info = wrapper.unwrap().info.clone();
 
-            res.render(Json(status));
+            res.render(Json(info));
         }
         None => {
             res.render(json!({"error": "id is required"}).to_string());
@@ -345,7 +345,7 @@ async fn main() {
     tokio::spawn(async {
         let router = Router::new()
             .push(Router::with_path("/download").post(start_download))
-            .push(Router::with_path("/status").get(get_status))
+            .push(Router::with_path("/status").get(get_info))
             .push(Router::with_path("/stop").post(stop_download))
             .push(Router::with_path("/all_info").get(get_all_info_api));
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
