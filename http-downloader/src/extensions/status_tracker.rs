@@ -7,14 +7,14 @@ use tokio::{select, sync};
 
 use crate::{DownloaderWrapper, DownloadExtensionBuilder, DownloadFuture, DownloadingEndCause, DownloadingState, DownloadStartError, HttpFileDownloader};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum NetworkItemPendingType {
     Starting,
     Stopping,
     Initializing,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DownloaderStatus {
     NoStart,
     Running,
