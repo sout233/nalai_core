@@ -296,7 +296,7 @@ async fn get_info(req: &mut Request, res: &mut Response) {
             };
 
             if wrapper.is_none() {
-                let result = NalaiResult::new(false, StatusCode::NOT_FOUND, json!("id not found"));
+                let result = NalaiResult::new(false, StatusCode::NOT_FOUND, Value::Null);
                 res.render(Json(result));
                 return;
             }
@@ -308,7 +308,7 @@ async fn get_info(req: &mut Request, res: &mut Response) {
             res.render(Json(result));
         }
         None => {
-            let result = NalaiResult::new(false, StatusCode::BAD_REQUEST, json!("id is required"));
+            let result = NalaiResult::new(false, StatusCode::BAD_REQUEST, Value::Null);
 
             res.render(Json(result));
         }
@@ -321,7 +321,7 @@ async fn stop_download(req: &mut Request, res: &mut Response) {
     let downloader = match GLOBAL_WRAPPERS.lock().await.get(&id) {
         Some(dl) => dl.downloader.clone(),
         None => {
-            let result = NalaiResult::new(false, StatusCode::NOT_FOUND, json!("id not found"));
+            let result = NalaiResult::new(false, StatusCode::NOT_FOUND, Value::Null);
             res.render(Json(result));
             return;
         }
@@ -329,7 +329,7 @@ async fn stop_download(req: &mut Request, res: &mut Response) {
     info!("Stop download for id: {}", id);
     downloader.lock().await.cancel().await;
 
-    let result = NalaiResult::new(true, StatusCode::OK, json!("download stopped"));
+    let result = NalaiResult::new(true, StatusCode::OK, Value::Null);
     res.render(Json(result));
 }
 
