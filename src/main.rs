@@ -10,14 +10,9 @@ use http_downloader::{
 use once_cell::sync::Lazy;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, to_value, Value};
 use std::{
-    collections::HashMap,
-    num::{NonZero, NonZeroU8, NonZeroUsize},
-    path::PathBuf,
-    sync::Arc,
-    thread,
-    time::Duration,
+    collections::HashMap, num::{NonZero, NonZeroU8, NonZeroUsize}, path::PathBuf, result, sync::Arc, thread, time::Duration
 };
 use tokio::sync::Mutex;
 use tracing::info;
@@ -62,6 +57,23 @@ enum StatusWrapper {
     Pending(String),
     Error(String),
     Finished,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct NalaiResult{
+    success: bool,
+    code: String,
+    data: Value
+}
+
+impl NalaiResult {
+    fn new(success: bool, code: StatusCode, data: Value) -> Self {
+        Self {
+            success,
+            code: code.to_string(),
+            data
+        }
+    }
 }
 
 #[handler]
@@ -256,8 +268,8 @@ async fn start_download(req: &mut Request, res: &mut Response) {
         }
     });
 
-    let result = json!({"id": &id});
-    res.render(result.to_string());
+    let result = NalaiResult::new(true, StatusCode::OK, json!({"id": &id}));
+    res.render(Json(result));
 }
 
 fn convet_status(status: DownloaderStatus) -> StatusWrapper {
@@ -284,16 +296,21 @@ async fn get_info(req: &mut Request, res: &mut Response) {
             };
 
             if wrapper.is_none() {
-                res.render(json!({"error": "id not found"}).to_string());
+                let result = NalaiResult::new(false, StatusCode::NOT_FOUND, json!("id not found"));
+                res.render(Json(result));
                 return;
             }
 
             let info = wrapper.unwrap().info.clone();
 
-            res.render(Json(info));
+            let result = NalaiResult::new(true, StatusCode::OK, to_value(info).unwrap());
+
+            res.render(Json(result));
         }
         None => {
-            res.render(json!({"error": "id is required"}).to_string());
+            let result = NalaiResult::new(false, StatusCode::BAD_REQUEST, json!("id is required"));
+
+            res.render(Json(result));
         }
     }
 }
@@ -304,19 +321,23 @@ async fn stop_download(req: &mut Request, res: &mut Response) {
     let downloader = match GLOBAL_WRAPPERS.lock().await.get(&id) {
         Some(dl) => dl.downloader.clone(),
         None => {
-            res.render(json!({"error": "id not found"}).to_string());
+            let result = NalaiResult::new(false, StatusCode::NOT_FOUND, json!("id not found"));
+            res.render(Json(result));
             return;
         }
     };
     info!("Stop download for id: {}", id);
     downloader.lock().await.cancel().await;
-    res.render(json!({"success": true}).to_string());
+
+    let result = NalaiResult::new(true, StatusCode::OK, json!("download stopped"));
+    res.render(Json(result));
 }
 
 #[handler]
 async fn get_all_info_api(_req: &mut Request, res: &mut Response) {
     let all_info = get_all_info().await;
-    res.render(Json(all_info));
+    let result = NalaiResult::new(true, StatusCode::OK, to_value(all_info).unwrap());
+    res.render(Json(result));
 }
 
 async fn get_all_info() -> HashMap<String, NalaiDownloadInfo> {
@@ -345,7 +366,7 @@ async fn main() {
     tokio::spawn(async {
         let router = Router::new()
             .push(Router::with_path("/download").post(start_download))
-            .push(Router::with_path("/status").get(get_info))
+            .push(Router::with_path("/info").get(get_info))
             .push(Router::with_path("/stop").post(stop_download))
             .push(Router::with_path("/all_info").get(get_all_info_api));
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
