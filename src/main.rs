@@ -89,8 +89,15 @@ async fn start_download(req: &mut Request, res: &mut Response) {
     let url = req.query::<String>("url").unwrap_or_default();
     let url = Url::parse(&url).unwrap();
 
+    let id = start_dl(&url, &save_dir);
+
+    let result = NalaiResult::new(true, StatusCode::OK, json!({"id": &id}));
+    res.render(Json(result));
+}
+
+fn start_dl(url: &Url, save_dir: &PathBuf)->String{
     let (mut downloader, (mut status_state, mut speed_state, speed_limiter, ..)) =
-        HttpDownloaderBuilder::new(url, save_dir)
+        HttpDownloaderBuilder::new(url.clone(), save_dir.clone())
             .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
             .download_connection_count(NonZeroU8::new(3).unwrap())
             .downloaded_len_send_interval(Some(Duration::from_millis(100)))
@@ -278,8 +285,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
         }
     });
 
-    let result = NalaiResult::new(true, StatusCode::OK, json!({"id": &id}));
-    res.render(Json(result));
+    id
 }
 
 #[handler]
@@ -315,7 +321,7 @@ async fn cancel_or_start_download(id: &str) -> Result<bool, String> {
         StatusWrapper::NoStart => {
             // 未开始下载，直接开始下载
             let downloader = wrapper.downloader.clone();
-            downloader.lock().await.prepare_download().unwrap();
+            start_dl(&downloader.lock().await.config().url, &downloader.lock().await.config().save_dir);
             Ok(true)
         }
         StatusWrapper::Running => {
@@ -333,7 +339,7 @@ async fn cancel_or_start_download(id: &str) -> Result<bool, String> {
         StatusWrapper::Error => {
             // 下载出错，重新开始下载
             let downloader = wrapper.downloader.clone();
-            downloader.lock().await.prepare_download().unwrap();
+            start_dl(&downloader.lock().await.config().url, &downloader.lock().await.config().save_dir);
             Ok(true)
         }
         StatusWrapper::Finished => {
