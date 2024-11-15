@@ -1,13 +1,24 @@
 use base64::{engine::general_purpose, Engine};
 use http_downloader::{
-    breakpoint_resume::DownloadBreakpointResumeExtension, bson_file_archiver::{ArchiveFilePath, BsonFileArchiverBuilder}, speed_limiter::DownloadSpeedLimiterExtension, speed_tracker::DownloadSpeedTrackerExtension, status_tracker::{DownloadStatusTrackerExtension, DownloaderStatus}, DownloadingEndCause, ExtendedHttpFileDownloader, HttpDownloaderBuilder
+    breakpoint_resume::DownloadBreakpointResumeExtension,
+    bson_file_archiver::{ArchiveFilePath, BsonFileArchiverBuilder},
+    speed_limiter::DownloadSpeedLimiterExtension,
+    speed_tracker::DownloadSpeedTrackerExtension,
+    status_tracker::{DownloadStatusTrackerExtension, DownloaderStatus},
+    DownloadError, DownloadingEndCause, ExtendedHttpFileDownloader, HttpDownloaderBuilder,
 };
 use once_cell::sync::Lazy;
 use salvo::{http::form, prelude::*};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, to_value, Value};
 use std::{
-    collections::HashMap, num::{NonZero, NonZeroU8, NonZeroUsize}, path::PathBuf, result, sync::Arc, thread, time::Duration
+    collections::HashMap,
+    num::{NonZero, NonZeroU8, NonZeroUsize},
+    path::PathBuf,
+    result,
+    sync::Arc,
+    thread,
+    time::Duration,
 };
 use tokio::sync::Mutex;
 use tracing::info;
@@ -28,7 +39,7 @@ struct NalaiDownloadInfo {
     total_size: NonZero<u64>,
     file_name: String,
     url: String,
-    status: String,
+    status: StatusWrapper,
     speed: u64,
 }
 
@@ -39,7 +50,7 @@ impl Default for NalaiDownloadInfo {
             total_size: NonZero::new(1).unwrap(),
             file_name: Default::default(),
             url: Default::default(),
-            status: Default::default(),
+            status: StatusWrapper::NoStart,
             speed: Default::default(),
         }
     }
@@ -49,16 +60,16 @@ impl Default for NalaiDownloadInfo {
 enum StatusWrapper {
     NoStart,
     Running,
-    Pending(String),
-    Error(String),
+    Pending,
+    Error,
     Finished,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct NalaiResult{
+struct NalaiResult {
     success: bool,
     code: String,
-    data: Value
+    data: Value,
 }
 
 impl NalaiResult {
@@ -66,7 +77,7 @@ impl NalaiResult {
         Self {
             success,
             code: code.to_string(),
-            data
+            data,
         }
     }
 }
@@ -173,7 +184,9 @@ async fn start_download(req: &mut Request, res: &mut Response) {
                                     total_size: total_len,
                                     file_name: file_name,
                                     url: url_text,
-                                    status: format!("{:?}", &status_state.status()),
+                                    status: convert_status(DownloaderStatusWrapper::from(
+                                        status_state.status(),
+                                    )),
                                     speed: speed_state.download_speed(),
                                 },
                             };
@@ -210,7 +223,9 @@ async fn start_download(req: &mut Request, res: &mut Response) {
                                     total_size: total_len,
                                     file_name: file_name,
                                     url: url_text,
-                                    status: format!("{:?}", status_state.status()),
+                                    status: convert_status(DownloaderStatusWrapper::from(
+                                        status_state.status(),
+                                    )),
                                     speed: speed_state.download_speed(),
                                 },
                             };
@@ -248,8 +263,8 @@ async fn start_download(req: &mut Request, res: &mut Response) {
             let dec = download_future.await;
 
             let result = match dec {
-                Ok(msg) => format!("{:?}", msg),
-                Err(msg) => format!("{:?}", msg),
+                Ok(msg) => convert_status(msg),
+                Err(msg) => convert_status(msg),
             };
 
             {
@@ -259,7 +274,7 @@ async fn start_download(req: &mut Request, res: &mut Response) {
                 }
             }
 
-            info!("Downloading end cause: {}", result);
+            info!("Downloading end cause: {:?}", result);
         }
     });
 
@@ -278,7 +293,11 @@ async fn cancel_or_start_download_api(req: &mut Request, res: &mut Response) {
                 NalaiResult::new(false, StatusCode::BAD_REQUEST, Value::Null)
             }
         }
-        Err(e) => NalaiResult::new(false, StatusCode::INTERNAL_SERVER_ERROR, json!({"error": e}))
+        Err(e) => NalaiResult::new(
+            false,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({"error": e}),
+        ),
     };
     res.render(Json(result));
 }
@@ -291,46 +310,87 @@ async fn cancel_or_start_download(id: &str) -> Result<bool, String> {
     };
 
     let status = wrapper.info.status.clone();
-    let no_start = format!("{:?}", DownloaderStatus::NoStart);
-    let running = format!("{:?}", DownloaderStatus::Running);
-    let finished = format!("{:?}", DownloaderStatus::Finished);
-    let canceled = format!("{:?}", DownloadingEndCause::Cancelled);
-    let download_finished = format!("{:?}", DownloadingEndCause::DownloadFinished);
 
-    if status == no_start {
-        // 未开始下载，直接开始下载
-        let downloader = wrapper.downloader.clone();
-        downloader.lock().await.prepare_download().unwrap();
-        Ok(true)
-    } else if status == running {
-        // 正在下载，取消下载
-        let downloader = wrapper.downloader.clone();
-        downloader.lock().await.cancel().await;
-        Ok(true)
-    } else if status == finished {
-        // 下载完成，不做任何操作
-        Ok(false)
-    } else if status == canceled {
-        // 已取消下载，不做任何操作
-        Ok(false)
-    } else if status == download_finished {
-        // 下载完成，不做任何操作
-        Ok(false)
-    } else {
-        // 其他状态，不做任何操作
-        Ok(false)
-}}
-    
-
-
-fn convet_status(status: DownloaderStatus) -> StatusWrapper {
     match status {
-        DownloaderStatus::NoStart => StatusWrapper::NoStart,
-        DownloaderStatus::Running => StatusWrapper::Running,
-        DownloaderStatus::Pending(i) => StatusWrapper::Pending(format!("{:?}", i)),
-        DownloaderStatus::Error(e) => StatusWrapper::Error(e.to_string()),
-        DownloaderStatus::Finished => StatusWrapper::Finished,
+        StatusWrapper::NoStart => {
+            // 未开始下载，直接开始下载
+            let downloader = wrapper.downloader.clone();
+            downloader.lock().await.prepare_download().unwrap();
+            Ok(true)
+        }
+        StatusWrapper::Running => {
+            // 正在下载，取消下载
+            let downloader = wrapper.downloader.clone();
+            downloader.lock().await.cancel().await;
+            Ok(true)
+        }
+        StatusWrapper::Pending => {
+            // 等待下载，取消下载
+            let downloader = wrapper.downloader.clone();
+            downloader.lock().await.cancel().await;
+            Ok(true)
+        }
+        StatusWrapper::Error => {
+            // 下载出错，重新开始下载
+            let downloader = wrapper.downloader.clone();
+            downloader.lock().await.prepare_download().unwrap();
+            Ok(true)
+        }
+        StatusWrapper::Finished => {
+            // 下载完成，不做任何操作
+            Ok(false)
+        }
     }
+}
+
+trait IntoStatusWrapper {
+    fn into_status_wrapper(self) -> StatusWrapper;
+}
+
+// 创建一个新的包装类型
+struct DownloaderStatusWrapper(DownloaderStatus);
+
+// 为包装类型实现 From<DownloaderStatus>，以便于构造
+impl From<DownloaderStatus> for DownloaderStatusWrapper {
+    fn from(status: DownloaderStatus) -> Self {
+        DownloaderStatusWrapper(status)
+    }
+}
+
+impl IntoStatusWrapper for DownloaderStatusWrapper {
+    fn into_status_wrapper(self) -> StatusWrapper {
+        match self.0 {
+            DownloaderStatus::NoStart => StatusWrapper::NoStart,
+            DownloaderStatus::Running => StatusWrapper::Running,
+            DownloaderStatus::Pending(_) => StatusWrapper::Pending,
+            DownloaderStatus::Error(e) => StatusWrapper::Error,
+            DownloaderStatus::Finished => StatusWrapper::Finished,
+        }
+    }
+}
+
+impl IntoStatusWrapper for DownloadingEndCause {
+    fn into_status_wrapper(self) -> StatusWrapper {
+        match self {
+            DownloadingEndCause::DownloadFinished => StatusWrapper::Finished,
+            DownloadingEndCause::Cancelled => StatusWrapper::NoStart,
+        }
+    }
+}
+
+impl IntoStatusWrapper for DownloadError {
+    fn into_status_wrapper(self) -> StatusWrapper {
+        match self {
+            _ => StatusWrapper::Error,
+        }
+    }
+}
+
+fn convert_status<T>(status: T) -> StatusWrapper
+where
+    T: IntoStatusWrapper,
+{
+    status.into_status_wrapper()
 }
 
 #[handler]
@@ -420,7 +480,9 @@ async fn main() {
             .push(Router::with_path("/info").get(get_info))
             .push(Router::with_path("/stop").post(stop_download))
             .push(Router::with_path("/all_info").get(get_all_info_api))
-            .push(Router::with_path("/cancel_or_start_download").post(cancel_or_start_download_api));
+            .push(
+                Router::with_path("/cancel_or_start_download").post(cancel_or_start_download_api),
+            );
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
         Server::new(acceptor).serve(router).await;
     });
