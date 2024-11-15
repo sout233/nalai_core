@@ -83,19 +83,19 @@ impl NalaiResult {
 }
 
 #[handler]
-async fn start_download(req: &mut Request, res: &mut Response) {
+async fn start_download_api(req: &mut Request, res: &mut Response) {
     let save_dir = req.query::<String>("save_dir").unwrap_or_default();
     let save_dir = PathBuf::from(save_dir);
     let url = req.query::<String>("url").unwrap_or_default();
     let url = Url::parse(&url).unwrap();
 
-    let id = start_dl(&url, &save_dir);
+    let id = start_download(&url, &save_dir);
 
     let result = NalaiResult::new(true, StatusCode::OK, json!({"id": &id}));
     res.render(Json(result));
 }
 
-fn start_dl(url: &Url, save_dir: &PathBuf)->String{
+fn start_download(url: &Url, save_dir: &PathBuf)->String{
     let (mut downloader, (mut status_state, mut speed_state, speed_limiter, ..)) =
         HttpDownloaderBuilder::new(url.clone(), save_dir.clone())
             .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
@@ -321,7 +321,7 @@ async fn cancel_or_start_download(id: &str) -> Result<bool, String> {
         StatusWrapper::NoStart => {
             // 未开始下载，直接开始下载
             let downloader = wrapper.downloader.clone();
-            start_dl(&downloader.lock().await.config().url, &downloader.lock().await.config().save_dir);
+            start_download(&downloader.lock().await.config().url, &downloader.lock().await.config().save_dir);
             Ok(true)
         }
         StatusWrapper::Running => {
@@ -339,7 +339,7 @@ async fn cancel_or_start_download(id: &str) -> Result<bool, String> {
         StatusWrapper::Error => {
             // 下载出错，重新开始下载
             let downloader = wrapper.downloader.clone();
-            start_dl(&downloader.lock().await.config().url, &downloader.lock().await.config().save_dir);
+            start_download(&downloader.lock().await.config().url, &downloader.lock().await.config().save_dir);
             Ok(true)
         }
         StatusWrapper::Finished => {
@@ -400,7 +400,7 @@ where
 }
 
 #[handler]
-async fn get_info(req: &mut Request, res: &mut Response) {
+async fn get_info_api(req: &mut Request, res: &mut Response) {
     let id = req.query::<String>("id");
 
     match id {
@@ -433,7 +433,7 @@ async fn get_info(req: &mut Request, res: &mut Response) {
 }
 
 #[handler]
-async fn stop_download(req: &mut Request, res: &mut Response) {
+async fn stop_download_api(req: &mut Request, res: &mut Response) {
     let id = req.query::<String>("id").unwrap_or_default();
     let downloader = match GLOBAL_WRAPPERS.lock().await.get(&id) {
         Some(dl) => dl.downloader.clone(),
@@ -482,9 +482,9 @@ async fn main() {
 
     tokio::spawn(async {
         let router = Router::new()
-            .push(Router::with_path("/download").post(start_download))
-            .push(Router::with_path("/info").get(get_info))
-            .push(Router::with_path("/stop").post(stop_download))
+            .push(Router::with_path("/download").post(start_download_api))
+            .push(Router::with_path("/info").get(get_info_api))
+            .push(Router::with_path("/stop").post(stop_download_api))
             .push(Router::with_path("/all_info").get(get_all_info_api))
             .push(Router::with_path("/sorc").post(cancel_or_start_download_api));
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
