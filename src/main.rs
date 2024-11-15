@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose, Engine};
+use futures::lock;
 use http_downloader::{
     breakpoint_resume::DownloadBreakpointResumeExtension,
     bson_file_archiver::{ArchiveFilePath, BsonFileArchiverBuilder},
@@ -12,13 +13,7 @@ use salvo::{http::form, prelude::*};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, to_value, Value};
 use std::{
-    collections::HashMap,
-    num::{NonZero, NonZeroU8, NonZeroUsize},
-    path::PathBuf,
-    result,
-    sync::Arc,
-    thread,
-    time::Duration,
+    collections::HashMap, fmt::Display, num::{NonZero, NonZeroU8, NonZeroUsize}, path::PathBuf, result, sync::Arc, thread, time::Duration
 };
 use tokio::sync::Mutex;
 use tracing::info;
@@ -63,6 +58,18 @@ enum StatusWrapper {
     Pending,
     Error,
     Finished,
+}
+
+impl Display for StatusWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StatusWrapper::NoStart => write!(f, "NoStart"),
+            StatusWrapper::Running => write!(f, "Running"),
+            StatusWrapper::Pending => write!(f, "Pending"),
+            StatusWrapper::Error => write!(f, "Error"),
+            StatusWrapper::Finished => write!(f, "Finished"),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -130,6 +137,8 @@ fn start_download(url: &Url, save_dir: &PathBuf)->String{
     let id = general_purpose::STANDARD.encode(file_path.as_bytes());
     let id2 = id.clone();
     let id3 = id.clone();
+
+    info!("spawn download task，启动下载任务");
 
     // 启动下载任务并立即返回
     tokio::spawn({
@@ -285,6 +294,8 @@ fn start_download(url: &Url, save_dir: &PathBuf)->String{
         }
     });
 
+    info!("Download task started，下载任务已启动");
+
     id
 }
 
@@ -294,9 +305,9 @@ async fn cancel_or_start_download_api(req: &mut Request, res: &mut Response) {
     let result = match cancel_or_start_download(&id).await {
         Ok(success) => {
             if success {
-                NalaiResult::new(true, StatusCode::OK, Value::Null)
+                NalaiResult::new(true, StatusCode::OK, json!({"status": StatusWrapper::Running.to_string()}))
             } else {
-                NalaiResult::new(false, StatusCode::BAD_REQUEST, Value::Null)
+                NalaiResult::new(false, StatusCode::BAD_REQUEST, json!({"error": "Start failed"}))
             }
         }
         Err(e) => NalaiResult::new(
@@ -321,7 +332,11 @@ async fn cancel_or_start_download(id: &str) -> Result<bool, String> {
         StatusWrapper::NoStart => {
             // 未开始下载，直接开始下载
             let downloader = wrapper.downloader.clone();
-            start_download(&downloader.lock().await.config().url, &downloader.lock().await.config().save_dir);
+            println!("Start download for id: {}", id);
+            let lock = downloader.lock().await;
+            println!("Lock acquired");
+            start_download(&lock.config().url, &lock.config().save_dir);
+            println!("Download started for id: {}", id);
             Ok(true)
         }
         StatusWrapper::Running => {
