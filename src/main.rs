@@ -1,13 +1,24 @@
 use base64::{engine::general_purpose, Engine};
 use http_downloader::{
-    breakpoint_resume::DownloadBreakpointResumeExtension, bson_file_archiver::{ArchiveFilePath, BsonFileArchiverBuilder}, speed_limiter::DownloadSpeedLimiterExtension, speed_tracker::DownloadSpeedTrackerExtension, status_tracker::{DownloadStatusTrackerExtension, DownloaderStatus}, DownloadingEndCause, ExtendedHttpFileDownloader, HttpDownloaderBuilder
+    breakpoint_resume::DownloadBreakpointResumeExtension,
+    bson_file_archiver::{ArchiveFilePath, BsonFileArchiverBuilder},
+    speed_limiter::DownloadSpeedLimiterExtension,
+    speed_tracker::DownloadSpeedTrackerExtension,
+    status_tracker::{DownloadStatusTrackerExtension, DownloaderStatus},
+    DownloadingEndCause, ExtendedHttpFileDownloader, HttpDownloaderBuilder,
 };
 use once_cell::sync::Lazy;
 use salvo::{http::form, prelude::*};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, to_value, Value};
 use std::{
-    collections::HashMap, num::{NonZero, NonZeroU8, NonZeroUsize}, path::PathBuf, result, sync::Arc, thread, time::Duration
+    collections::HashMap,
+    num::{NonZero, NonZeroU8, NonZeroUsize},
+    path::PathBuf,
+    result,
+    sync::Arc,
+    thread,
+    time::Duration,
 };
 use tokio::sync::Mutex;
 use tracing::info;
@@ -55,10 +66,10 @@ enum StatusWrapper {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct NalaiResult{
+struct NalaiResult {
     success: bool,
     code: String,
-    data: Value
+    data: Value,
 }
 
 impl NalaiResult {
@@ -66,7 +77,7 @@ impl NalaiResult {
         Self {
             success,
             code: code.to_string(),
-            data
+            data,
         }
     }
 }
@@ -278,7 +289,11 @@ async fn cancel_or_start_download_api(req: &mut Request, res: &mut Response) {
                 NalaiResult::new(false, StatusCode::BAD_REQUEST, Value::Null)
             }
         }
-        Err(e) => NalaiResult::new(false, StatusCode::INTERNAL_SERVER_ERROR, json!({"error": e}))
+        Err(e) => NalaiResult::new(
+            false,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({"error": e}),
+        ),
     };
     res.render(Json(result));
 }
@@ -297,10 +312,12 @@ async fn cancel_or_start_download(id: &str) -> Result<bool, String> {
     let canceled = format!("{:?}", DownloadingEndCause::Cancelled);
     let download_finished = format!("{:?}", DownloadingEndCause::DownloadFinished);
 
-    if status == no_start {
+    println!("Status: {:?}", &status);
+
+    if status == no_start || status == canceled {
         // 未开始下载，直接开始下载
         let downloader = wrapper.downloader.clone();
-        downloader.lock().await.prepare_download().unwrap();
+        start_download();
         Ok(true)
     } else if status == running {
         // 正在下载，取消下载
@@ -310,18 +327,14 @@ async fn cancel_or_start_download(id: &str) -> Result<bool, String> {
     } else if status == finished {
         // 下载完成，不做任何操作
         Ok(false)
-    } else if status == canceled {
-        // 已取消下载，不做任何操作
-        Ok(false)
     } else if status == download_finished {
         // 下载完成，不做任何操作
         Ok(false)
     } else {
         // 其他状态，不做任何操作
         Ok(false)
-}}
-    
-
+    }
+}
 
 fn convet_status(status: DownloaderStatus) -> StatusWrapper {
     match status {
@@ -420,7 +433,7 @@ async fn main() {
             .push(Router::with_path("/info").get(get_info))
             .push(Router::with_path("/stop").post(stop_download))
             .push(Router::with_path("/all_info").get(get_all_info_api))
-            .push(Router::with_path("/cancel_or_start_download").post(cancel_or_start_download_api));
+            .push(Router::with_path("/sorc").post(cancel_or_start_download_api));
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
         Server::new(acceptor).serve(router).await;
     });
