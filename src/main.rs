@@ -303,10 +303,9 @@ fn start_download(url: &Url, save_dir: &PathBuf)->String{
 async fn cancel_or_start_download_api(req: &mut Request, res: &mut Response) {
     let id = req.query::<String>("id").unwrap_or_default();
     let result = match cancel_or_start_download(&id).await {
-        Ok(success) => {
+        Ok((success, running)) => {
             if success {
-                let status = get_info(&id).await.unwrap().status.clone();
-                NalaiResult::new(true, StatusCode::OK, json!({"status": status}))
+                NalaiResult::new(true, StatusCode::OK, json!({"running": running}))
             } else {
                 NalaiResult::new(false, StatusCode::BAD_REQUEST, json!({"error": "Task is Finished or Error"}))
             }
@@ -320,7 +319,7 @@ async fn cancel_or_start_download_api(req: &mut Request, res: &mut Response) {
     res.render(Json(result));
 }
 
-async fn cancel_or_start_download(id: &str) -> Result<bool, String> {
+async fn cancel_or_start_download(id: &str) -> Result<(bool,bool), String> {
     let lock = GLOBAL_WRAPPERS.lock().await;
     let wrapper = match lock.get(id) {
         Some(dl) => dl,
@@ -338,29 +337,29 @@ async fn cancel_or_start_download(id: &str) -> Result<bool, String> {
             println!("Lock acquired");
             start_download(&lock.config().url, &lock.config().save_dir);
             println!("Download started for id: {}", id);
-            Ok(true)
+            Ok((true,true))
         }
         StatusWrapper::Running => {
             // 正在下载，取消下载
             let downloader = wrapper.downloader.clone();
             downloader.lock().await.cancel().await;
-            Ok(true)
+            Ok((true,false))
         }
         StatusWrapper::Pending => {
             // 等待下载，取消下载
             let downloader = wrapper.downloader.clone();
             downloader.lock().await.cancel().await;
-            Ok(true)
+            Ok((true,false))
         }
         StatusWrapper::Error => {
             // 下载出错，重新开始下载
             let downloader = wrapper.downloader.clone();
             start_download(&downloader.lock().await.config().url, &downloader.lock().await.config().save_dir);
-            Ok(true)
+            Ok((true,true))
         }
         StatusWrapper::Finished => {
             // 下载完成，不做任何操作
-            Ok(false)
+            Ok((false,false))
         }
     }
 }
