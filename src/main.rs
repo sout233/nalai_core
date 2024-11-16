@@ -305,9 +305,10 @@ async fn cancel_or_start_download_api(req: &mut Request, res: &mut Response) {
     let result = match cancel_or_start_download(&id).await {
         Ok(success) => {
             if success {
-                NalaiResult::new(true, StatusCode::OK, json!({"status": StatusWrapper::Running.to_string()}))
+                let status = get_info(&id).await.unwrap().status.clone();
+                NalaiResult::new(true, StatusCode::OK, json!({"status": status}))
             } else {
-                NalaiResult::new(false, StatusCode::BAD_REQUEST, json!({"error": "Start failed"}))
+                NalaiResult::new(false, StatusCode::BAD_REQUEST, json!({"error": "Task is Finished or Error"}))
             }
         }
         Err(e) => NalaiResult::new(
@@ -422,18 +423,14 @@ async fn get_info_api(req: &mut Request, res: &mut Response) {
         Some(id) => {
             info!("Get status for id: {}", id);
 
-            let wrapper = {
-                let lock = GLOBAL_WRAPPERS.lock().await;
-                lock.get(&id).cloned()
+            let info = match get_info(&id).await {
+                Some(info) => info,
+                None => {
+                    let result = NalaiResult::new(false, StatusCode::NOT_FOUND, Value::Null);
+                    res.render(Json(result));
+                    return;
+                }
             };
-
-            if wrapper.is_none() {
-                let result = NalaiResult::new(false, StatusCode::NOT_FOUND, Value::Null);
-                res.render(Json(result));
-                return;
-            }
-
-            let info = wrapper.unwrap().info.clone();
 
             let result = NalaiResult::new(true, StatusCode::OK, to_value(info).unwrap());
 
@@ -445,6 +442,20 @@ async fn get_info_api(req: &mut Request, res: &mut Response) {
             res.render(Json(result));
         }
     }
+}
+
+async fn get_info(id: &str) -> Option<NalaiDownloadInfo>{
+    let wrapper = {
+        let lock = GLOBAL_WRAPPERS.lock().await;
+        lock.get(id).cloned()
+    };
+
+    if wrapper.is_none() {
+        return None;
+    }
+
+    let info = wrapper.unwrap().info.clone();
+    Some(info)
 }
 
 #[handler]
