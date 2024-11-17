@@ -1,5 +1,4 @@
 use base64::{engine::general_purpose, Engine};
-use futures::lock;
 use http_downloader::{
     breakpoint_resume::DownloadBreakpointResumeExtension,
     bson_file_archiver::{ArchiveFilePath, BsonFileArchiverBuilder},
@@ -9,11 +8,17 @@ use http_downloader::{
     DownloadError, DownloadingEndCause, ExtendedHttpFileDownloader, HttpDownloaderBuilder,
 };
 use once_cell::sync::Lazy;
-use salvo::{http::form, prelude::*};
+use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, to_value, Value};
 use std::{
-    collections::HashMap, fmt::Display, num::{NonZero, NonZeroU8, NonZeroUsize}, path::PathBuf, result, sync::Arc, thread, time::Duration
+    collections::HashMap,
+    fmt::Display,
+    num::{NonZero, NonZeroU8, NonZeroUsize},
+    path::PathBuf,
+    sync::Arc,
+    thread,
+    time::Duration,
 };
 use tokio::sync::Mutex;
 use tracing::info;
@@ -24,7 +29,7 @@ static GLOBAL_WRAPPERS: Lazy<Arc<Mutex<HashMap<String, NalaiWrapper>>>> =
 
 #[derive(Clone)]
 struct NalaiWrapper {
-    downloader: Arc<Mutex<ExtendedHttpFileDownloader>>,
+    downloader: Option<Arc<Mutex<ExtendedHttpFileDownloader>>>,
     info: NalaiDownloadInfo,
 }
 
@@ -36,6 +41,7 @@ struct NalaiDownloadInfo {
     url: String,
     status: StatusWrapper,
     speed: u64,
+    save_dir: String,
 }
 
 impl Default for NalaiDownloadInfo {
@@ -47,6 +53,7 @@ impl Default for NalaiDownloadInfo {
             url: Default::default(),
             status: StatusWrapper::NoStart,
             speed: Default::default(),
+            save_dir: Default::default(),
         }
     }
 }
@@ -89,6 +96,13 @@ impl NalaiResult {
     }
 }
 
+async fn insert_to_global_wrappers(id: String, wrapper: NalaiWrapper) {
+    let mut global_wrappers = GLOBAL_WRAPPERS.lock().await;
+    global_wrappers.insert(id, wrapper);
+
+    // let _ = save_all_to_file().await;
+}
+
 #[handler]
 async fn start_download_api(req: &mut Request, res: &mut Response) {
     let save_dir = req.query::<String>("save_dir").unwrap_or_default();
@@ -102,8 +116,8 @@ async fn start_download_api(req: &mut Request, res: &mut Response) {
     res.render(Json(result));
 }
 
-fn start_download(url: &Url, save_dir: &PathBuf)->String{
-    let (mut downloader, (mut status_state, mut speed_state, speed_limiter, ..)) =
+fn start_download(url: &Url, save_dir: &PathBuf) -> String {
+    let (downloader, (mut status_state, mut speed_state, _speed_limiter, ..)) =
         HttpDownloaderBuilder::new(url.clone(), save_dir.clone())
             .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
             .download_connection_count(NonZeroU8::new(3).unwrap())
@@ -155,15 +169,15 @@ fn start_download(url: &Url, save_dir: &PathBuf)->String{
 
                 let total_size_future = downloader.lock().await.total_size_future();
 
-                let state_receiver = downloader.lock().await.downloading_state_receiver();
+                let _state_receiver = downloader.lock().await.downloading_state_receiver();
 
                 // TODO: 虽说先初始化一次是没什么毛病，但总感觉不够优雅
                 let wrapper = NalaiWrapper {
-                    downloader: downloader.clone(),
+                    downloader: Some(downloader.clone()),
                     info: NalaiDownloadInfo::default(),
                 };
 
-                GLOBAL_WRAPPERS.lock().await.insert(id.clone(), wrapper);
+                insert_to_global_wrappers(id.clone(), wrapper).await;
 
                 async move {
                     let total_len = total_size_future.await;
@@ -194,7 +208,7 @@ fn start_download(url: &Url, save_dir: &PathBuf)->String{
                             let url_text = config.url.to_string();
 
                             let wrapper = NalaiWrapper {
-                                downloader: downloader.clone(),
+                                downloader: Some(downloader.clone()),
                                 info: NalaiDownloadInfo {
                                     downloaded_bytes: progress,
                                     total_size: total_len,
@@ -204,10 +218,11 @@ fn start_download(url: &Url, save_dir: &PathBuf)->String{
                                         status_state.status(),
                                     )),
                                     speed: speed_state.download_speed(),
+                                    save_dir: config.save_dir.to_str().unwrap().to_string(),
                                 },
                             };
 
-                            GLOBAL_WRAPPERS.lock().await.insert(id.clone(), wrapper);
+                            insert_to_global_wrappers(id.clone(), wrapper).await;
                         }
                         tokio::time::sleep(Duration::from_millis(100)).await;
                     }
@@ -233,7 +248,7 @@ fn start_download(url: &Url, save_dir: &PathBuf)->String{
                             let url_text = config.url.to_string();
 
                             let wrapper = NalaiWrapper {
-                                downloader: downloader.clone(),
+                                downloader: Some(downloader.clone()),
                                 info: NalaiDownloadInfo {
                                     downloaded_bytes: progress,
                                     total_size: total_len,
@@ -243,10 +258,11 @@ fn start_download(url: &Url, save_dir: &PathBuf)->String{
                                         status_state.status(),
                                     )),
                                     speed: speed_state.download_speed(),
+                                    save_dir: config.save_dir.to_str().unwrap().to_string(),
                                 },
                             };
 
-                            GLOBAL_WRAPPERS.lock().await.insert(id.clone(), wrapper);
+                            insert_to_global_wrappers(id.clone(), wrapper).await;
 
                             if let DownloaderStatus::Error(e) = status_state.status() {
                                 info!("Download error: {}", e);
@@ -296,6 +312,8 @@ fn start_download(url: &Url, save_dir: &PathBuf)->String{
 
     info!("Download task started，下载任务已启动");
 
+    // save_all_to_file().await.unwrap();
+
     id
 }
 
@@ -307,7 +325,11 @@ async fn cancel_or_start_download_api(req: &mut Request, res: &mut Response) {
             if success {
                 NalaiResult::new(true, StatusCode::OK, json!({"running": running}))
             } else {
-                NalaiResult::new(false, StatusCode::BAD_REQUEST, json!({"error": "Task is Finished or Error"}))
+                NalaiResult::new(
+                    false,
+                    StatusCode::BAD_REQUEST,
+                    json!({"error": "Task is Finished or Error"}),
+                )
             }
         }
         Err(e) => NalaiResult::new(
@@ -319,49 +341,67 @@ async fn cancel_or_start_download_api(req: &mut Request, res: &mut Response) {
     res.render(Json(result));
 }
 
-async fn cancel_or_start_download(id: &str) -> Result<(bool,bool), String> {
+async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
+    let info = match get_info(id).await {
+        Some(it) => it,
+        None => return Err(format!("No such download id: {}", id)),
+    };
+
+    let status = info.status.clone();
+
+    let wrapper = match get_wrapper_by_id(id).await {
+        Some(it) => it,
+        None => return Err(format!("No such download id: {}", id)),
+    };
+
+    match status {
+        StatusWrapper::NoStart => {
+            // 未开始下载，直接开始下载
+            let url = Url::parse(&wrapper.info.url).unwrap();
+            let save_dir = PathBuf::from(&wrapper.info.save_dir);
+            start_download(&url, &save_dir);
+            Ok((true, true))
+        }
+        StatusWrapper::Running => {
+            // 正在下载，取消下载
+            cancel_download(id).await?;
+            Ok((true, false))
+        }
+        StatusWrapper::Pending => {
+            // 等待下载，取消下载
+            cancel_download(id).await?;
+            Ok((true, false))
+        }
+        StatusWrapper::Error => {
+            // 下载出错，重新开始下载
+            let url = Url::parse(&wrapper.info.url).unwrap();
+            let save_dir = PathBuf::from(&wrapper.info.save_dir);
+            start_download(&url, &save_dir);
+            Ok((true, true))
+        }
+        StatusWrapper::Finished => {
+            // 下载完成，不做任何操作
+            Ok((false, false))
+        }
+    }
+}
+
+async fn cancel_download(id: &str) -> anyhow::Result<bool, String> {
     let lock = GLOBAL_WRAPPERS.lock().await;
     let wrapper = match lock.get(id) {
         Some(dl) => dl,
         None => return Err(format!("No such download id: {}", id)),
     };
 
-    let status = wrapper.info.status.clone();
+    let downloader = wrapper.downloader.clone().unwrap();
+    downloader.lock().await.cancel().await;
 
-    match status {
-        StatusWrapper::NoStart => {
-            // 未开始下载，直接开始下载
-            let downloader = wrapper.downloader.clone();
-            println!("Start download for id: {}", id);
-            let lock = downloader.lock().await;
-            println!("Lock acquired");
-            start_download(&lock.config().url, &lock.config().save_dir);
-            println!("Download started for id: {}", id);
-            Ok((true,true))
-        }
-        StatusWrapper::Running => {
-            // 正在下载，取消下载
-            let downloader = wrapper.downloader.clone();
-            downloader.lock().await.cancel().await;
-            Ok((true,false))
-        }
-        StatusWrapper::Pending => {
-            // 等待下载，取消下载
-            let downloader = wrapper.downloader.clone();
-            downloader.lock().await.cancel().await;
-            Ok((true,false))
-        }
-        StatusWrapper::Error => {
-            // 下载出错，重新开始下载
-            let downloader = wrapper.downloader.clone();
-            start_download(&downloader.lock().await.config().url, &downloader.lock().await.config().save_dir);
-            Ok((true,true))
-        }
-        StatusWrapper::Finished => {
-            // 下载完成，不做任何操作
-            Ok((false,false))
-        }
-    }
+    match save_all_to_file().await {
+        Ok(it) => it,
+        Err(err) => return Err(err.to_string()),
+    };
+
+    Ok(true)
 }
 
 trait IntoStatusWrapper {
@@ -384,7 +424,7 @@ impl IntoStatusWrapper for DownloaderStatusWrapper {
             DownloaderStatus::NoStart => StatusWrapper::NoStart,
             DownloaderStatus::Running => StatusWrapper::Running,
             DownloaderStatus::Pending(_) => StatusWrapper::Pending,
-            DownloaderStatus::Error(e) => StatusWrapper::Error,
+            DownloaderStatus::Error(_e) => StatusWrapper::Error,
             DownloaderStatus::Finished => StatusWrapper::Finished,
         }
     }
@@ -443,11 +483,8 @@ async fn get_info_api(req: &mut Request, res: &mut Response) {
     }
 }
 
-async fn get_info(id: &str) -> Option<NalaiDownloadInfo>{
-    let wrapper = {
-        let lock = GLOBAL_WRAPPERS.lock().await;
-        lock.get(id).cloned()
-    };
+async fn get_info(id: &str) -> Option<NalaiDownloadInfo> {
+    let wrapper = get_wrapper_by_id(id).await;
 
     if wrapper.is_none() {
         return None;
@@ -457,26 +494,39 @@ async fn get_info(id: &str) -> Option<NalaiDownloadInfo>{
     Some(info)
 }
 
-#[handler]
-async fn stop_download_api(req: &mut Request, res: &mut Response) {
-    let id = req.query::<String>("id").unwrap_or_default();
-    let downloader = match GLOBAL_WRAPPERS.lock().await.get(&id) {
-        Some(dl) => dl.downloader.clone(),
-        None => {
-            let result = NalaiResult::new(false, StatusCode::NOT_FOUND, Value::Null);
-            res.render(Json(result));
-            return;
-        }
-    };
-    info!("Stop download for id: {}", id);
-    downloader.lock().await.cancel().await;
+async fn get_wrapper_by_id(id: &str) -> Option<NalaiWrapper> {
+    let lock = GLOBAL_WRAPPERS.lock().await;
+    lock.get(id).cloned()
+}
 
-    let result = NalaiResult::new(true, StatusCode::OK, Value::Null);
-    res.render(Json(result));
+#[handler]
+async fn cancel_download_api(req: &mut Request, res: &mut Response) {
+    let id = req.query::<String>("id").unwrap_or_default();
+
+    match cancel_download(&id).await {
+        Ok(success) => {
+            if success {
+                let result = NalaiResult::new(true, StatusCode::OK, Value::Null);
+                res.render(Json(result));
+            } else {
+                let result = NalaiResult::new(false, StatusCode::NOT_FOUND, Value::Null);
+                res.render(Json(result));
+            }
+        }
+        Err(e) => {
+            let result = NalaiResult::new(
+                false,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": e}),
+            );
+            res.render(Json(result));
+        }
+    }
 }
 
 #[handler]
 async fn get_all_info_api(_req: &mut Request, res: &mut Response) {
+    save_all_to_file().await.unwrap();
     let all_info = get_all_info().await;
     let result = NalaiResult::new(true, StatusCode::OK, to_value(all_info).unwrap());
     res.render(Json(result));
@@ -491,11 +541,30 @@ async fn get_all_info() -> HashMap<String, NalaiDownloadInfo> {
     result
 }
 
-async fn save_to_file() -> Result<(), std::io::Error> {
-    let all_info = get_all_info().await;
-    let json_str = serde_json::to_string(&all_info).unwrap();
+async fn load_global_wrappers_from_json() {
     let file_path = PathBuf::from("nalai_info_data.json");
-    std::fs::write(file_path, json_str).unwrap();
+    if file_path.exists() {
+        let json_str = std::fs::read_to_string(file_path).unwrap();
+        let all_info: HashMap<String, NalaiDownloadInfo> = serde_json::from_str(&json_str).unwrap();
+        let mut lock = GLOBAL_WRAPPERS.lock().await;
+        for (id, info) in all_info.iter() {
+            let wrapper = NalaiWrapper {
+                downloader: None,
+                info: info.clone(),
+            };
+            lock.insert(id.clone(), wrapper);
+        }
+    }
+}
+
+async fn save_all_to_file() -> anyhow::Result<()> {
+    tokio::spawn(async {
+        let all_info = get_all_info().await;
+        let json_str = serde_json::to_string(&all_info).unwrap();
+        let file_path = PathBuf::from("nalai_info_data.json");
+        tokio::fs::write(file_path.clone(), json_str).await.unwrap();
+        info!("数据已保存到文件: {}", file_path.to_str().unwrap());
+    });
     Ok(())
 }
 
@@ -505,11 +574,13 @@ async fn main() {
 
     info!("Starting server");
 
+    load_global_wrappers_from_json().await;
+
     tokio::spawn(async {
         let router = Router::new()
             .push(Router::with_path("/download").post(start_download_api))
             .push(Router::with_path("/info").get(get_info_api))
-            .push(Router::with_path("/stop").post(stop_download_api))
+            .push(Router::with_path("/cancel").post(cancel_download_api))
             .push(Router::with_path("/all_info").get(get_all_info_api))
             .push(Router::with_path("/sorc").post(cancel_or_start_download_api));
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
@@ -525,6 +596,8 @@ async fn main() {
     //     }
     //     std::process::exit(0);
     // }).unwrap();
+
+    info!("Nalai Core 服务已启动 ヾ(≧▽≦*)o");
 
     loop {
         thread::sleep(Duration::from_secs(1));
