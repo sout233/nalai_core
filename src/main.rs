@@ -532,6 +532,50 @@ async fn get_all_info_api(_req: &mut Request, res: &mut Response) {
     res.render(Json(result));
 }
 
+#[handler]
+async fn delete_download_api(req: &mut Request, res: &mut Response) {
+    let id = req.query::<String>("id").unwrap_or_default();
+
+    match delete_download(&id).await {
+        Ok(success) => {
+            if success {
+                let result = NalaiResult::new(true, StatusCode::OK, Value::Null);
+                res.render(Json(result));
+            } else {
+                let result = NalaiResult::new(false, StatusCode::NOT_FOUND, Value::Null);
+                res.render(Json(result));
+            }
+        }
+        Err(e) => {
+            let result = NalaiResult::new(
+                false,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error": e}),
+            );
+            res.render(Json(result));
+        }
+    }
+}
+
+async fn delete_download(id: &str) -> anyhow::Result<bool, String> {
+    cancel_download(id).await?;
+
+    let value = GLOBAL_WRAPPERS.lock().await.remove(id);
+
+    let r = match value {
+        Some(_) => {
+            let a: Result<bool, String> = match save_all_to_file().await {
+                Ok(_) => Ok(true),
+                Err(err) => return Err(err.to_string()),
+            };
+            a
+        }
+        None => Ok(false),
+    };
+    
+    r
+}
+
 async fn get_all_info() -> HashMap<String, NalaiDownloadInfo> {
     let lock = GLOBAL_WRAPPERS.lock().await;
     let mut result = HashMap::new();
@@ -578,12 +622,18 @@ async fn main() {
 
     tokio::spawn(async {
         let router = Router::new()
-            .push(Router::with_path("/download").post(start_download_api))
+            .push(
+                Router::with_path("/download")
+                    .post(start_download_api)
+                    .delete(delete_download_api),
+            )
             .push(Router::with_path("/info").get(get_info_api))
             .push(Router::with_path("/cancel").post(cancel_download_api))
             .push(Router::with_path("/all_info").get(get_all_info_api))
             .push(Router::with_path("/sorc").post(cancel_or_start_download_api));
+
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
+
         Server::new(acceptor).serve(router).await;
     });
 
