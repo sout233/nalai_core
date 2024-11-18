@@ -538,11 +538,12 @@ async fn delete_download_api(req: &mut Request, res: &mut Response) {
 
     match delete_download(&id).await {
         Ok(success) => {
+            let all_info = get_all_info().await;
             if success {
-                let result = NalaiResult::new(true, StatusCode::OK, Value::Null);
+                let result = NalaiResult::new(true, StatusCode::OK, to_value(all_info).unwrap());
                 res.render(Json(result));
             } else {
-                let result = NalaiResult::new(false, StatusCode::NOT_FOUND, Value::Null);
+                let result = NalaiResult::new(false, StatusCode::NOT_FOUND, to_value(all_info).unwrap());
                 res.render(Json(result));
             }
         }
