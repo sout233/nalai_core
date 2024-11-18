@@ -558,6 +558,12 @@ async fn delete_download_api(req: &mut Request, res: &mut Response) {
     }
 }
 
+#[handler]
+async fn check_health_api(_req: &mut Request, res: &mut Response) {
+    let result = NalaiResult::new(true, StatusCode::OK, Value::Null);
+    res.render(Json(result));
+}
+
 async fn delete_download(id: &str) -> anyhow::Result<bool, String> {
     cancel_download(id).await?;
 
@@ -631,7 +637,7 @@ async fn main() {
             .push(Router::with_path("/info").get(get_info_api))
             .push(Router::with_path("/cancel").post(cancel_download_api))
             .push(Router::with_path("/all_info").get(get_all_info_api))
-            .push(Router::with_path("/sorc").post(cancel_or_start_download_api));
+            .push(Router::with_path("/sorc").post(cancel_or_start_download_api)).push(Router::with_path("checkhealth").get(check_health_api));
 
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
 
