@@ -573,6 +573,7 @@ async fn delete_download_api(req: &mut Request, res: &mut Response) {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 json!({"error": e}),
             );
+
             res.render(Json(result));
         }
     }
