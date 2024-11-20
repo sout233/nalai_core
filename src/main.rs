@@ -16,7 +16,6 @@ use std::{
     fmt::Display,
     num::{NonZero, NonZeroU8, NonZeroUsize},
     path::PathBuf,
-    result,
     sync::Arc,
     thread,
     time::Duration,
