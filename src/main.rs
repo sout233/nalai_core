@@ -16,6 +16,7 @@ use std::{
     fmt::Display,
     num::{NonZero, NonZeroU8, NonZeroUsize},
     path::PathBuf,
+    result,
     sync::Arc,
     thread,
     time::Duration,
@@ -483,6 +484,25 @@ async fn get_info_api(req: &mut Request, res: &mut Response) {
     }
 }
 
+#[handler]
+async fn exit_api(_req: &mut Request, res: &mut Response) {
+    info!("收到中断信号，正在保存数据...");
+    if let Err(e) = save_all_to_file().await {
+        eprintln!("保存数据时出错: {}", e);
+        let result = NalaiResult::new(
+            false,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({"error":e.to_string()}),
+        );
+        res.render(Json(result));
+    } else {
+        info!("数据已成功保存");
+        let result = NalaiResult::new(true, StatusCode::OK, Value::Null);
+        res.render(Json(result));
+        std::process::exit(0);
+    }
+}
+
 async fn get_info(id: &str) -> Option<NalaiDownloadInfo> {
     let wrapper = get_wrapper_by_id(id).await;
 
@@ -543,7 +563,8 @@ async fn delete_download_api(req: &mut Request, res: &mut Response) {
                 let result = NalaiResult::new(true, StatusCode::OK, to_value(all_info).unwrap());
                 res.render(Json(result));
             } else {
-                let result = NalaiResult::new(false, StatusCode::NOT_FOUND, to_value(all_info).unwrap());
+                let result =
+                    NalaiResult::new(false, StatusCode::NOT_FOUND, to_value(all_info).unwrap());
                 res.render(Json(result));
             }
         }
@@ -579,7 +600,7 @@ async fn delete_download(id: &str) -> anyhow::Result<bool, String> {
         }
         None => Ok(false),
     };
-    
+
     r
 }
 
@@ -637,7 +658,9 @@ async fn main() {
             .push(Router::with_path("/info").get(get_info_api))
             .push(Router::with_path("/cancel").post(cancel_download_api))
             .push(Router::with_path("/all_info").get(get_all_info_api))
-            .push(Router::with_path("/sorc").post(cancel_or_start_download_api)).push(Router::with_path("checkhealth").get(check_health_api));
+            .push(Router::with_path("/sorc").post(cancel_or_start_download_api))
+            .push(Router::with_path("checkhealth").get(check_health_api))
+            .push(Router::with_path("exit").get(exit_api));
 
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
 
