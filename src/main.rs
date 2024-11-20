@@ -24,6 +24,10 @@ use tokio::sync::Mutex;
 use tracing::info;
 use url::Url;
 
+mod handlers;
+mod models;
+mod utils;
+
 static GLOBAL_WRAPPERS: Lazy<Arc<Mutex<HashMap<String, NalaiWrapper>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
