@@ -1,29 +1,8 @@
-use base64::{engine::general_purpose, Engine};
-use http_downloader::{
-    breakpoint_resume::DownloadBreakpointResumeExtension,
-    bson_file_archiver::{ArchiveFilePath, BsonFileArchiverBuilder},
-    speed_limiter::DownloadSpeedLimiterExtension,
-    speed_tracker::DownloadSpeedTrackerExtension,
-    status_tracker::{DownloadStatusTrackerExtension, DownloaderStatus},
-    DownloadError, DownloadingEndCause, ExtendedHttpFileDownloader, HttpDownloaderBuilder,
-};
-use once_cell::sync::Lazy;
+use std::{thread, time::Duration};
+
 use salvo::prelude::*;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, to_value, Value};
 use utils::global_wrappers;
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    num::{NonZero, NonZeroU8, NonZeroUsize},
-    path::PathBuf,
-    sync::Arc,
-    thread,
-    time::Duration,
-};
-use tokio::sync::Mutex;
 use tracing::info;
-use url::Url;
 
 mod handlers;
 mod models;

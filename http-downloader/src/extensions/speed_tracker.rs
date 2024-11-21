@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Result;
 use futures_util::FutureExt;
@@ -87,7 +87,7 @@ impl DownloaderWrapper for DownloadSpeedDownloaderWrapper {
     ) -> Result<DownloadFuture, DownloadStartError> {
         let downloading_state_receiver = self.downloading_state_receiver.take().unwrap();
 
-        let mut downloaded_len_receiver = self.downloaded_len_receiver.clone();
+        let downloaded_len_receiver = self.downloaded_len_receiver.clone();
         let download_speed_sender = self.download_speed_sender.clone();
         let log = self.log;
 

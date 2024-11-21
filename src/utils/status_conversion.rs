@@ -1,7 +1,7 @@
 use http_downloader::{status_tracker::DownloaderStatus, DownloadError, DownloadingEndCause};
 use crate::models::status_wrapper::StatusWrapper;
 
-trait IntoStatusWrapper {
+pub trait IntoStatusWrapper {
     fn into_status_wrapper(self) -> StatusWrapper;
 }
 
