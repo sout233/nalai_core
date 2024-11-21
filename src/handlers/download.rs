@@ -1,12 +1,33 @@
-use std::{num::{NonZeroU8, NonZeroUsize}, path::PathBuf, sync::Arc, time::Duration};
+use crate::{
+    models::{
+        nalai_download_info::NalaiDownloadInfo, nalai_result::NalaiResult,
+        nalai_wrapper::NalaiWrapper, status_wrapper::StatusWrapper,
+    },
+    utils::{
+        global_wrappers,
+        status_conversion::{self, DownloaderStatusWrapper},
+    },
+};
 use base64::{engine::general_purpose, Engine};
-use http_downloader::{breakpoint_resume::DownloadBreakpointResumeExtension, bson_file_archiver::{ArchiveFilePath, BsonFileArchiverBuilder}, speed_limiter::DownloadSpeedLimiterExtension, speed_tracker::DownloadSpeedTrackerExtension, status_tracker::{DownloadStatusTrackerExtension, DownloaderStatus}, HttpDownloaderBuilder};
+use http_downloader::{
+    breakpoint_resume::DownloadBreakpointResumeExtension,
+    bson_file_archiver::{ArchiveFilePath, BsonFileArchiverBuilder},
+    speed_limiter::DownloadSpeedLimiterExtension,
+    speed_tracker::DownloadSpeedTrackerExtension,
+    status_tracker::{DownloadStatusTrackerExtension, DownloaderStatus},
+    HttpDownloaderBuilder,
+};
 use salvo::prelude::*;
 use serde_json::{json, to_value, Value};
+use std::{
+    num::{NonZeroU8, NonZeroUsize},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::Mutex;
 use tracing::info;
 use url::Url;
-use crate::{models::{nalai_download_info::NalaiDownloadInfo, nalai_result::NalaiResult, nalai_wrapper::NalaiWrapper, status_wrapper::StatusWrapper}, utils::{global_wrappers, status_conversion::{self, DownloaderStatusWrapper}}};
 
 use super::info;
 #[handler]
@@ -120,9 +141,11 @@ fn start_download(url: &Url, save_dir: &PathBuf) -> String {
                                     total_size: total_len,
                                     file_name: file_name,
                                     url: url_text,
-                                    status: status_conversion::convert_status(status_conversion::DownloaderStatusWrapper::from(
-                                        status_state.status(),
-                                    )),
+                                    status: status_conversion::convert_status(
+                                        status_conversion::DownloaderStatusWrapper::from(
+                                            status_state.status(),
+                                        ),
+                                    ),
                                     speed: speed_state.download_speed(),
                                     save_dir: config.save_dir.to_str().unwrap().to_string(),
                                 },
@@ -160,15 +183,15 @@ fn start_download(url: &Url, save_dir: &PathBuf) -> String {
                                     total_size: total_len,
                                     file_name: file_name,
                                     url: url_text,
-                                    status: status_conversion::convert_status(DownloaderStatusWrapper::from(
-                                        status_state.status(),
-                                    )),
+                                    status: status_conversion::convert_status(
+                                        DownloaderStatusWrapper::from(status_state.status()),
+                                    ),
                                     speed: speed_state.download_speed(),
                                     save_dir: config.save_dir.to_str().unwrap().to_string(),
                                 },
                             };
 
-                           global_wrappers::insert_to_global_wrappers(id.clone(), wrapper).await;
+                            global_wrappers::insert_to_global_wrappers(id.clone(), wrapper).await;
 
                             if let DownloaderStatus::Error(e) = status_state.status() {
                                 info!("Download error: {}", e);
@@ -299,9 +322,11 @@ async fn cancel_download(id: &str) -> anyhow::Result<bool, String> {
         None => return Err(format!("No such download id: {}", id)),
     };
 
-    let downloader = wrapper.downloader.clone().unwrap();
-    downloader.lock().await.cancel().await;
-
+    let downloader = wrapper.downloader.clone();
+    if !downloader.is_none() {
+        downloader.unwrap().lock().await.cancel().await;
+    }
+    
     match global_wrappers::save_all_to_file().await {
         Ok(it) => it,
         Err(err) => return Err(err.to_string()),
