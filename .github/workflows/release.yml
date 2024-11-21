@@ -69,7 +69,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./windows-latest-build/nalai_core-${{ github.ref_name }}.exe
+        asset_path: ./windows-latest-build/nalai_core-v${{ github.ref_name }}.exe
         asset_name: nalai_core-v${{ github.ref_name }}.exe
         asset_content_type: application/octet-stream
 
