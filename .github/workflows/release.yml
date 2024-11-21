@@ -1,4 +1,4 @@
-name: Rust Release CI
+name: Rust Release
 
 on:
   push:
