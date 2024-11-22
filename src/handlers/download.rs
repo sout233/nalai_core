@@ -271,6 +271,8 @@ pub async fn cancel_or_start_download_api(req: &mut Request, res: &mut Response)
 }
 
 async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
+    info!("Cancel or start download，取消或开始下载");
+
     let info = match info::get_info(id).await {
         Some(it) => it,
         None => return Err(format!("No such download id: {}", id)),
@@ -316,6 +318,8 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
 }
 
 async fn cancel_download(id: &str) -> anyhow::Result<bool, String> {
+    info!("Cancel download，取消下载");
+
     let lock = global_wrappers::GLOBAL_WRAPPERS.lock().await;
     let wrapper = match lock.get(id) {
         Some(dl) => dl,
@@ -326,7 +330,7 @@ async fn cancel_download(id: &str) -> anyhow::Result<bool, String> {
     if !downloader.is_none() {
         downloader.unwrap().lock().await.cancel().await;
     }
-    
+
     match global_wrappers::save_all_to_file().await {
         Ok(it) => it,
         Err(err) => return Err(err.to_string()),
@@ -335,6 +339,8 @@ async fn cancel_download(id: &str) -> anyhow::Result<bool, String> {
     Ok(true)
 }
 async fn delete_download(id: &str) -> anyhow::Result<bool, String> {
+    info!("Delete download，删除下载");
+    
     cancel_download(id).await?;
 
     let value = global_wrappers::GLOBAL_WRAPPERS.lock().await.remove(id);

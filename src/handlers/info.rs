@@ -55,6 +55,8 @@ pub async fn get_all_info_api(_req: &mut Request, res: &mut Response) {
 }
 
 pub(crate) async fn get_all_info() -> HashMap<String, NalaiDownloadInfo> {
+    info!("Get all info");
+    
     let lock =global_wrappers::GLOBAL_WRAPPERS.lock().await;
     let mut result = HashMap::new();
     for (id, wrapper) in lock.iter() {
