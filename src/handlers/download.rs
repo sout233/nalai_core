@@ -36,14 +36,15 @@ pub async fn start_download_api(req: &mut Request, res: &mut Response) {
     let save_dir = PathBuf::from(save_dir);
     let url = req.query::<String>("url").unwrap_or_default();
     let url = Url::parse(&url).unwrap();
+    let pre_id = req.query::<String>("id");
 
-    let id = start_download(&url, &save_dir);
+    let id = start_download(&url, &save_dir, pre_id);
 
     let result = NalaiResult::new(true, StatusCode::OK, json!({"id": &id}));
     res.render(Json(result));
 }
 
-fn start_download(url: &Url, save_dir: &PathBuf) -> String {
+fn start_download(url: &Url, save_dir: &PathBuf, mut id: Option<String>) -> String {
     let (downloader, (mut status_state, mut speed_state, _speed_limiter, ..)) =
         HttpDownloaderBuilder::new(url.clone(), save_dir.clone())
             .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
@@ -69,13 +70,17 @@ fn start_download(url: &Url, save_dir: &PathBuf) -> String {
                 },
             ));
 
-    let file_path = downloader
-        .get_file_path()
-        .to_str()
-        .unwrap_or_default()
-        .to_string();
+    if id.is_none() {
+        let file_path = downloader
+            .get_file_path()
+            .to_str()
+            .unwrap_or_default()
+            .to_string();
 
-    let id = general_purpose::STANDARD.encode(file_path.as_bytes());
+        id = Some(general_purpose::STANDARD.encode(file_path.as_bytes()));
+    }
+
+    let id = id.unwrap();
     let id2 = id.clone();
     let id3 = id.clone();
 
@@ -290,7 +295,7 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
             // 未开始下载，直接开始下载
             let url = Url::parse(&wrapper.info.url).unwrap();
             let save_dir = PathBuf::from(&wrapper.info.save_dir);
-            start_download(&url, &save_dir);
+            start_download(&url, &save_dir, Some(id.to_string()));
             Ok((true, true))
         }
         StatusWrapper::Running => {
@@ -307,7 +312,7 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
             // 下载出错，重新开始下载
             let url = Url::parse(&wrapper.info.url).unwrap();
             let save_dir = PathBuf::from(&wrapper.info.save_dir);
-            start_download(&url, &save_dir);
+            start_download(&url, &save_dir, Some(id.to_string()));
             Ok((true, true))
         }
         StatusWrapper::Finished => {
@@ -340,7 +345,7 @@ async fn cancel_download(id: &str) -> anyhow::Result<bool, String> {
 }
 async fn delete_download(id: &str) -> anyhow::Result<bool, String> {
     info!("Delete download，删除下载");
-    
+
     cancel_download(id).await?;
 
     let value = global_wrappers::GLOBAL_WRAPPERS.lock().await.remove(id);
