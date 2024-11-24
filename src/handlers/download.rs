@@ -37,19 +37,26 @@ pub async fn start_download_api(req: &mut Request, res: &mut Response) {
     let url = req.query::<String>("url").unwrap_or_default();
     let url = Url::parse(&url).unwrap();
     let pre_id = req.query::<String>("id");
+    let file_name = req.query::<String>("file_name");
 
-    let id = start_download(&url, &save_dir, pre_id);
+    let id = start_download(&url, &save_dir, file_name, pre_id);
 
     let result = NalaiResult::new(true, StatusCode::OK, json!({"id": &id}));
     res.render(Json(result));
 }
 
-fn start_download(url: &Url, save_dir: &PathBuf, mut id: Option<String>) -> String {
+fn start_download(
+    url: &Url,
+    save_dir: &PathBuf,
+    file_name: Option<String>,
+    mut id: Option<String>,
+) -> String {
     let (downloader, (mut status_state, mut speed_state, _speed_limiter, ..)) =
         HttpDownloaderBuilder::new(url.clone(), save_dir.clone())
             .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
             .download_connection_count(NonZeroU8::new(3).unwrap())
             .downloaded_len_send_interval(Some(Duration::from_millis(100)))
+            .file_name(file_name)
             .build((
                 // 下载状态追踪扩展
                 // by cargo feature "status-tracker" enable
@@ -295,7 +302,10 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
             // 未开始下载，直接开始下载
             let url = Url::parse(&wrapper.info.url).unwrap();
             let save_dir = PathBuf::from(&wrapper.info.save_dir);
-            start_download(&url, &save_dir, Some(id.to_string()));
+            let file_name = Some(wrapper.info.file_name.clone());
+
+            start_download(&url, &save_dir, file_name, Some(id.to_string()));
+
             Ok((true, true))
         }
         StatusWrapper::Running => {
@@ -312,7 +322,10 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
             // 下载出错，重新开始下载
             let url = Url::parse(&wrapper.info.url).unwrap();
             let save_dir = PathBuf::from(&wrapper.info.save_dir);
-            start_download(&url, &save_dir, Some(id.to_string()));
+            let file_name = Some(wrapper.info.file_name.clone());
+
+            start_download(&url, &save_dir, file_name, Some(id.to_string()));
+
             Ok((true, true))
         }
         StatusWrapper::Finished => {
