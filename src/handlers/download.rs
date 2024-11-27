@@ -111,12 +111,22 @@ fn start_download(
                 let _state_receiver = downloader.lock().await.downloading_state_receiver();
 
                 // TODO: 虽说先初始化一次是没什么毛病，但总感觉不够优雅
-                let wrapper = NalaiWrapper {
-                    downloader: Some(downloader.clone()),
-                    info: NalaiDownloadInfo::default(),
-                };
+                // let wrapper = NalaiWrapper {
+                //     downloader: Some(downloader.clone()),
+                //     info: NalaiDownloadInfo::default(),
+                // };
 
-                global_wrappers::insert_to_global_wrappers(id.clone(), wrapper).await;
+                // global_wrappers::insert_to_global_wrappers(id.clone(), wrapper).await;
+
+                let mut original_info = NalaiDownloadInfo::default();
+                let original_wrapper = global_wrappers::get_wrapper_by_id(&id.clone()).await;
+                match original_wrapper {
+                    Some(wrapper) => {
+                        let info = wrapper.info.clone();
+                        original_info = info;
+                    }
+                    None => {}
+                }
 
                 async move {
                     let total_len = total_size_future.await;
@@ -160,6 +170,7 @@ fn start_download(
                                     ),
                                     speed: speed_state.download_speed(),
                                     save_dir: config.save_dir.to_str().unwrap().to_string(),
+                                    create_time: original_info.create_time,
                                 },
                             };
 
@@ -200,6 +211,7 @@ fn start_download(
                                     ),
                                     speed: speed_state.download_speed(),
                                     save_dir: config.save_dir.to_str().unwrap().to_string(),
+                                    create_time: original_info.create_time,
                                 },
                             };
 
