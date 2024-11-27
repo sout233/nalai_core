@@ -356,7 +356,31 @@ async fn cancel_download(id: &str) -> anyhow::Result<bool, String> {
 
     Ok(true)
 }
-async fn delete_download(id: &str) -> anyhow::Result<bool, String> {
+
+pub async fn cancel_all_downloads() -> anyhow::Result<bool, String> {
+    info!("Cancel all downloads，取消所有下载");
+
+    let lock = global_wrappers::GLOBAL_WRAPPERS.lock().await;
+    for (_, wrapper) in lock.iter() {
+        if !wrapper.downloader.is_none() {
+            if wrapper.info.status == StatusWrapper::Running
+                || wrapper.info.status == StatusWrapper::Pending
+            {
+                let a = wrapper.downloader.as_ref().unwrap();
+                a.lock().await.cancel().await;
+            }
+        }
+    }
+
+    match global_wrappers::save_all_to_file().await {
+        Ok(it) => it,
+        Err(err) => return Err(err.to_string()),
+    };
+
+    Ok(true)
+}
+
+pub async fn delete_download(id: &str) -> anyhow::Result<bool, String> {
     info!("Delete download，删除下载");
 
     cancel_download(id).await?;
