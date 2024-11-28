@@ -140,13 +140,6 @@ fn start_download(
                     while downloaded_len_receiver.changed().await.is_ok() {
                         let progress = *downloaded_len_receiver.borrow();
                         if let Some(total_len) = total_len {
-                            info!(
-                                "Download Progress: {} %，{}/{}",
-                                progress * 100 / total_len,
-                                progress,
-                                total_len
-                            );
-
                             let full_path = downloader.lock().await.get_file_path();
 
                             let file_name =
@@ -155,6 +148,14 @@ fn start_download(
                             let d = downloader.lock().await;
                             let config = d.config();
                             let url_text = config.url.to_string();
+
+                            info!(
+                                "{} Progress: {} %，{}/{}",
+                                file_name.clone(),
+                                progress * 100 / total_len,
+                                progress,
+                                total_len
+                            );
 
                             let wrapper = NalaiWrapper {
                                 downloader: Some(downloader.clone()),
@@ -182,14 +183,8 @@ fn start_download(
                     while status_state.status_receiver.changed().await.is_ok() {
                         println!("State update: {:?}", status_state.status());
                         let progress = *downloaded_len_receiver.borrow();
-                        if let Some(total_len) = total_len {
-                            info!(
-                                "Download Progress: {} %，{}/{}",
-                                progress * 100 / total_len,
-                                progress,
-                                total_len
-                            );
 
+                        if let Some(total_len) = total_len {
                             let full_path = downloader.lock().await.get_file_path();
 
                             let file_name =
