@@ -1,7 +1,6 @@
 use crate::{
     models::{
-        nalai_download_info::NalaiDownloadInfo, nalai_result::NalaiResult,
-        nalai_wrapper::NalaiWrapper, status_wrapper::StatusWrapper,
+        chunk_wrapper::ChunkWrapper, nalai_download_info::NalaiDownloadInfo, nalai_result::NalaiResult, nalai_wrapper::NalaiWrapper, status_wrapper::StatusWrapper
     },
     utils::{
         global_wrappers,
@@ -155,6 +154,8 @@ fn start_download(
                             let d = downloader.lock().await;
                             let config = d.config();
                             let url_text = config.url.to_string();
+                            let chunks = d.get_chunks().await;
+                            let chunks = chunks.iter().map(|c| ChunkWrapper::from(c.clone())).collect();
 
                             let wrapper = NalaiWrapper {
                                 downloader: Some(downloader.clone()),
@@ -171,6 +172,7 @@ fn start_download(
                                     speed: speed_state.download_speed(),
                                     save_dir: config.save_dir.to_str().unwrap().to_string(),
                                     create_time: original_info.create_time,
+                                    chunks: chunks
                                 },
                             };
 
@@ -198,6 +200,8 @@ fn start_download(
                             let d = downloader.lock().await;
                             let config = d.config();
                             let url_text = config.url.to_string();
+                            let chunks = d.get_chunks().await;
+                            let chunks = chunks.iter().map(|c| ChunkWrapper::from(Arc::clone(c))).collect();
 
                             let wrapper = NalaiWrapper {
                                 downloader: Some(downloader.clone()),
@@ -212,6 +216,7 @@ fn start_download(
                                     speed: speed_state.download_speed(),
                                     save_dir: config.save_dir.to_str().unwrap().to_string(),
                                     create_time: original_info.create_time,
+                                    chunks: chunks
                                 },
                             };
 
