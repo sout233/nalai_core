@@ -24,7 +24,7 @@ pub async fn get_info_api(req: &mut Request, res: &mut Response) {
 
     match id {
         Some(id) => {
-            info!("Get status for id: {}", id);
+            // info!("Get status for id: {}", id);
 
             let info = match get_info(&id).await {
                 Some(info) => info,
