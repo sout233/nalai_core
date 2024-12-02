@@ -1,7 +1,10 @@
 use crate::{
     models::{
-        chunk_wrapper::ChunkWrapper, nalai_download_info::NalaiDownloadInfo,
-        nalai_result::NalaiResult, nalai_wrapper::NalaiWrapper, status_wrapper::StatusWrapper,
+        chunk_wrapper::{self, ChunkWrapper},
+        nalai_download_info::NalaiDownloadInfo,
+        nalai_result::NalaiResult,
+        nalai_wrapper::NalaiWrapper,
+        status_wrapper::StatusWrapper,
     },
     utils::{
         global_wrappers::{self, get_wrapper_by_id},
@@ -165,11 +168,14 @@ async fn start_download(
                             let d = downloader.lock().await;
                             let config = d.config();
                             let url_text = config.url.to_string();
-                            let chunks = d.get_chunks().await;
+
+                            let original_chunks: Vec<ChunkWrapper> = original_info.chunks.clone();
+                            let chunks: Vec<Arc<http_downloader::ChunkItem>> = d.get_chunks().await;
                             let chunks: Vec<ChunkWrapper> = chunks
                                 .iter()
                                 .map(|c| ChunkWrapper::from(c.clone()))
                                 .collect();
+                            let chunks = chunk_wrapper::merge_chunks(original_chunks, chunks);
 
                             info!(
                                 "{} Progress: {} %，{}/{}",
@@ -216,11 +222,14 @@ async fn start_download(
                             let d = downloader.lock().await;
                             let config = d.config();
                             let url_text = config.url.to_string();
-                            let chunks = d.get_chunks().await;
-                            let chunks = chunks
+
+                            let original_chunks: Vec<ChunkWrapper> = original_info.chunks.clone();
+                            let chunks: Vec<Arc<http_downloader::ChunkItem>> = d.get_chunks().await;
+                            let chunks: Vec<ChunkWrapper> = chunks
                                 .iter()
-                                .map(|c| ChunkWrapper::from(Arc::clone(c)))
+                                .map(|c| ChunkWrapper::from(c.clone()))
                                 .collect();
+                            let chunks = chunk_wrapper::merge_chunks(original_chunks, chunks);
 
                             let wrapper = NalaiWrapper {
                                 downloader: Some(downloader.clone()),
