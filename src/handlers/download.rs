@@ -1,5 +1,4 @@
 use crate::{
-    handlers::download,
     models::{
         chunk_wrapper::ChunkWrapper, nalai_download_info::NalaiDownloadInfo,
         nalai_result::NalaiResult, nalai_wrapper::NalaiWrapper, status_wrapper::StatusWrapper,
@@ -56,7 +55,7 @@ async fn start_download(
         HttpDownloaderBuilder::new(url.clone(), save_dir.clone())
             .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
             .download_connection_count(NonZeroU8::new(3).unwrap())
-            .downloaded_len_send_interval(Some(Duration::from_millis(2000)))
+            .downloaded_len_send_interval(Some(Duration::from_millis(100)))
             .file_name(file_name)
             .build((
                 // 下载状态追踪扩展
@@ -93,21 +92,21 @@ async fn start_download(
     let id3 = id.clone();
 
     let wrapper = get_wrapper_by_id(id.clone().as_str()).await;
-        if !wrapper.is_none() {
-            info!("wrapper is not none");
-            let downloader = wrapper.clone().unwrap().downloader;
-            if !downloader.is_none() {
-                info!("downloader is not none");
-                // let downloader = downloader.unwrap();
-                // let mut status_state = downloader.lock().await.get_downloading_state().unwrap().upgrade().unwrap();
-                let status =  wrapper.as_ref().clone().unwrap().info.status.clone();
-                info!("status is {}", status);
-                if status== StatusWrapper::Running{
-                    info!("Download task already running，下载任务已运行");
-                    return id.clone();
-                }
+    if !wrapper.is_none() {
+        info!("wrapper is not none");
+        let downloader = wrapper.clone().unwrap().downloader;
+        if !downloader.is_none() {
+            info!("downloader is not none");
+            // let downloader = downloader.unwrap();
+            // let mut status_state = downloader.lock().await.get_downloading_state().unwrap().upgrade().unwrap();
+            let status = wrapper.as_ref().clone().unwrap().info.status.clone();
+            info!("status is {}", status);
+            if status == StatusWrapper::Running {
+                info!("Download task already running，下载任务已运行");
+                return id.clone();
             }
         }
+    }
 
     info!("spawn download task，启动下载任务");
 
@@ -201,7 +200,7 @@ async fn start_download(
 
                             global_wrappers::insert_to_global_wrappers(id.clone(), wrapper).await;
                         }
-                        tokio::time::sleep(Duration::from_millis(2000)).await;
+                        tokio::time::sleep(Duration::from_millis(100)).await;
                     }
                     // 实则是接收状态更新的说
                     while status_state.status_receiver.changed().await.is_ok() {
