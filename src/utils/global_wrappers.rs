@@ -11,8 +11,8 @@ pub(crate) static GLOBAL_WRAPPERS: Lazy<Arc<Mutex<HashMap<String, NalaiWrapper>>
 pub(crate) async fn load_global_wrappers_from_json() {
     let file_path = PathBuf::from("nalai_info_data.json");
     if file_path.exists() {
-        let json_str = std::fs::read_to_string(file_path).unwrap();
-        let all_info: HashMap<String, NalaiDownloadInfo> = serde_json::from_str(&json_str).unwrap();
+        let json_str = std::fs::read_to_string(file_path).unwrap_or_default();
+        let all_info: HashMap<String, NalaiDownloadInfo> = serde_json::from_str(&json_str).unwrap_or(HashMap::new());
         let mut lock = GLOBAL_WRAPPERS.lock().await;
         for (id, info) in all_info.iter() {
             let wrapper = NalaiWrapper {
