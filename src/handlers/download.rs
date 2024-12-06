@@ -107,6 +107,9 @@ async fn start_download(
             if status == StatusWrapper::Running {
                 info!("Download task already running，下载任务已运行");
                 return id.clone();
+            }else{
+                wrapper.clone().unwrap().info.status = StatusWrapper::Running;
+                global_wrappers::insert_to_global_wrappers(id.clone(), wrapper.clone().unwrap()).await;
             }
         }
     }
@@ -147,6 +150,9 @@ async fn start_download(
                     }
                     None => {}
                 }
+
+                // 防止客户端获取的状态不正确
+                original_info.status = StatusWrapper::Running;
 
                 async move {
                     let total_len = total_size_future.await;
