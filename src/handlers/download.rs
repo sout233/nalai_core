@@ -400,7 +400,7 @@ async fn cancel_download(id: &str) -> anyhow::Result<bool, String> {
         downloader.unwrap().lock().await.cancel().await;
     }
 
-    match global_wrappers::save_all_to_file().await {
+    match global_wrappers::save_all_to_sled().await {
         Ok(it) => it,
         Err(err) => return Err(err.to_string()),
     };
@@ -423,7 +423,7 @@ pub async fn cancel_all_downloads() -> anyhow::Result<bool, String> {
         }
     }
 
-    match global_wrappers::save_all_to_file().await {
+    match global_wrappers::save_all_to_sled().await {
         Ok(it) => it,
         Err(err) => return Err(err.to_string()),
     };
@@ -440,7 +440,7 @@ pub async fn delete_download(id: &str) -> anyhow::Result<bool, String> {
 
     let r = match value {
         Some(_) => {
-            let a: Result<bool, String> = match global_wrappers::save_all_to_file().await {
+            let a: Result<bool, String> = match global_wrappers::save_all_to_sled().await {
                 Ok(_) => Ok(true),
                 Err(err) => return Err(err.to_string()),
             };

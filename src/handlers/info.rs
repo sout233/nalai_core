@@ -48,7 +48,8 @@ pub async fn get_info_api(req: &mut Request, res: &mut Response) {
 }
 #[handler]
 pub async fn get_all_info_api(_req: &mut Request, res: &mut Response) {
-    global_wrappers::save_all_to_file().await.unwrap();
+    // global_wrappers::save_all_to_file().await.unwrap();
+    global_wrappers::save_all_to_sled().await.unwrap();
     let all_info = get_all_info().await;
     let result = NalaiResult::new(true, StatusCode::OK, to_value(all_info).unwrap());
     res.render(Json(result));
