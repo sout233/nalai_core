@@ -77,15 +77,18 @@ pub(crate) async fn load_global_wrappers_from_sled() {
         };
         lock.insert(id.clone(), wrapper);
     }
+    info!("数据已从sled数据库加载");
 }
 
 
 pub async fn save_all_to_sled() -> anyhow::Result<()> {
-    let db = sled::open("nalai_info_data.sled").unwrap();
+    let db = sled::open("nalai_info_data.sled")?;
     let all_info = info::get_all_info().await;
     for (id, info) in all_info.iter() {
-        let info_bytes = serde_json::to_vec(&info).unwrap();
-        db.insert(id.as_bytes(), info_bytes).unwrap();
+        let info_bytes = serde_json::to_vec(&info)?;
+        db.insert(id.as_bytes(), info_bytes)?;
     }
+    db.flush_async().await?;
+    info!("数据已保存到sled数据库");
     Ok(())
 }
