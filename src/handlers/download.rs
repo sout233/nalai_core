@@ -107,9 +107,10 @@ async fn start_download(
             if status == StatusWrapper::Running {
                 info!("Download task already running，下载任务已运行");
                 return id.clone();
-            }else{
+            } else {
                 wrapper.clone().unwrap().info.status = StatusWrapper::Running;
-                global_wrappers::insert_to_global_wrappers(id.clone(), wrapper.clone().unwrap()).await;
+                global_wrappers::insert_to_global_wrappers(id.clone(), wrapper.clone().unwrap())
+                    .await;
             }
         }
     }
@@ -389,18 +390,20 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
 async fn cancel_download(id: &str) -> anyhow::Result<bool, String> {
     info!("Cancel download，取消下载");
 
-    let lock = global_wrappers::GLOBAL_WRAPPERS.lock().await;
-    let wrapper = match lock.get(id) {
-        Some(dl) => dl,
-        None => return Err(format!("No such download id: {}", id)),
-    };
+    {
+        let lock = global_wrappers::GLOBAL_WRAPPERS.lock().await;
+        let wrapper = match lock.get(id) {
+            Some(dl) => dl,
+            None => return Err(format!("No such download id: {}", id)),
+        };
 
-    let downloader = wrapper.downloader.clone();
-    if !downloader.is_none() {
-        downloader.unwrap().lock().await.cancel().await;
+        let downloader = wrapper.downloader.clone();
+        if !downloader.is_none() {
+            downloader.unwrap().lock().await.cancel().await;
+        }
     }
 
-    match global_wrappers::save_all_to_file().await {
+    match global_wrappers::save_all_to_sled(false).await {
         Ok(it) => it,
         Err(err) => return Err(err.to_string()),
     };
@@ -411,22 +414,28 @@ async fn cancel_download(id: &str) -> anyhow::Result<bool, String> {
 pub async fn cancel_all_downloads() -> anyhow::Result<bool, String> {
     info!("Cancel all downloads，取消所有下载");
 
-    let lock = global_wrappers::GLOBAL_WRAPPERS.lock().await;
-    for (_, wrapper) in lock.iter() {
-        if !wrapper.downloader.is_none() {
-            if wrapper.info.status == StatusWrapper::Running
-                || wrapper.info.status == StatusWrapper::Pending
-            {
-                let a = wrapper.downloader.as_ref().unwrap();
-                a.lock().await.cancel().await;
+    {
+        let lock = global_wrappers::GLOBAL_WRAPPERS.lock().await;
+        for (_, wrapper) in lock.iter() {
+            if !wrapper.downloader.is_none() {
+                if wrapper.info.status == StatusWrapper::Running
+                    || wrapper.info.status == StatusWrapper::Pending
+                {
+                    let a = wrapper.downloader.as_ref().unwrap();
+                    a.lock().await.cancel().await;
+                }
             }
         }
     }
 
-    match global_wrappers::save_all_to_file().await {
+    info!("Cancel all downloads end，取消所有下载结束");
+
+    match global_wrappers::save_all_to_sled(false).await {
         Ok(it) => it,
         Err(err) => return Err(err.to_string()),
     };
+
+    info!("Save all to sled end，保存所有到 sled 结束");
 
     Ok(true)
 }
@@ -440,7 +449,7 @@ pub async fn delete_download(id: &str) -> anyhow::Result<bool, String> {
 
     let r = match value {
         Some(_) => {
-            let a: Result<bool, String> = match global_wrappers::save_all_to_file().await {
+            let a: Result<bool, String> = match global_wrappers::save_all_to_sled(false).await {
                 Ok(_) => Ok(true),
                 Err(err) => return Err(err.to_string()),
             };

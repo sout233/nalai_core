@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use salvo::prelude::*;
 use serde_json::{to_value, Value};
@@ -18,6 +19,7 @@ pub(crate) async fn get_info(id: &str) -> Option<NalaiDownloadInfo> {
     let info = wrapper.unwrap().info.clone();
     Some(info)
 }
+
 #[handler]
 pub async fn get_info_api(req: &mut Request, res: &mut Response) {
     let id = req.query::<String>("id");
@@ -46,9 +48,11 @@ pub async fn get_info_api(req: &mut Request, res: &mut Response) {
         }
     }
 }
+
 #[handler]
 pub async fn get_all_info_api(_req: &mut Request, res: &mut Response) {
-    global_wrappers::save_all_to_file().await.unwrap();
+    // global_wrappers::save_all_to_file().await.unwrap();
+    global_wrappers::save_all_to_sled(false).await.unwrap();
     let all_info = get_all_info().await;
     let result = NalaiResult::new(true, StatusCode::OK, to_value(all_info).unwrap());
     res.render(Json(result));
@@ -56,8 +60,10 @@ pub async fn get_all_info_api(_req: &mut Request, res: &mut Response) {
 
 pub(crate) async fn get_all_info() -> HashMap<String, NalaiDownloadInfo> {
     info!("Get all info");
-    
-    let lock =global_wrappers::GLOBAL_WRAPPERS.lock().await;
+
+    let all_infos = Arc::clone(&global_wrappers::GLOBAL_WRAPPERS);
+    let lock = all_infos.lock().await;
+    info!("Got lock");
     let mut result = HashMap::new();
     for (id, wrapper) in lock.iter() {
         result.insert(id.clone(), wrapper.info.clone());
