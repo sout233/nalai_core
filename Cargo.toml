@@ -1,6 +1,6 @@
 [package]
 name = "nalai_core"
-version = "0.1.3"
+version = "0.1.4-alpha"
 edition = "2021"
 
 [dependencies]
