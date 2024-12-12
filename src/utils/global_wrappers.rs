@@ -2,11 +2,11 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use crate::{handlers::info, models::{nalai_download_info::NalaiDownloadInfo, nalai_wrapper::NalaiWrapper}};
 use once_cell::sync::Lazy;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 use tracing::info;
 
-pub(crate) static GLOBAL_WRAPPERS: Lazy<Arc<RwLock<HashMap<String, NalaiWrapper>>>> =
-    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+pub(crate) static GLOBAL_WRAPPERS: Lazy<Arc<Mutex<HashMap<String, NalaiWrapper>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 #[deprecated]
 #[allow(dead_code)]

@@ -62,7 +62,7 @@ pub(crate) async fn get_all_info() -> HashMap<String, NalaiDownloadInfo> {
     info!("Get all info");
 
     let all_infos = Arc::clone(&global_wrappers::GLOBAL_WRAPPERS);
-    let lock = all_infos.read().await;
+    let lock = all_infos.lock().await;
     info!("Got lock");
     let mut result = HashMap::new();
     for (id, wrapper) in lock.iter() {
