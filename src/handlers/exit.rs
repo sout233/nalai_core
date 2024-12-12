@@ -14,6 +14,7 @@ pub async fn exit_api(_req: &mut Request, res: &mut Response) {
             info!("所有下载任务已取消");
         }
     }
+    
     match global_wrappers::save_all_to_sled(true).await {
         Err(e) => {
             eprintln!("保存下载记录失败: {}", e);

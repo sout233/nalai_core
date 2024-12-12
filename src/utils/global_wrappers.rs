@@ -2,11 +2,11 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use crate::{handlers::info, models::{nalai_download_info::NalaiDownloadInfo, nalai_wrapper::NalaiWrapper}};
 use once_cell::sync::Lazy;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tracing::info;
 
-pub(crate) static GLOBAL_WRAPPERS: Lazy<Arc<Mutex<HashMap<String, NalaiWrapper>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+pub(crate) static GLOBAL_WRAPPERS: Lazy<Arc<RwLock<HashMap<String, NalaiWrapper>>>> =
+    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 #[deprecated]
 #[allow(dead_code)]
@@ -83,11 +83,14 @@ pub(crate) async fn load_global_wrappers_from_sled() {
 
 pub async fn save_all_to_sled(should_flush: bool) -> anyhow::Result<()> {
     let db = sled::open("nalai_info_data.sled")?;
+    info!("开始保存数据到sled数据库");
     let all_info = info::get_all_info().await;
+    info!("获取数据成功");
     for (id, info) in all_info.iter() {
         let info_bytes = serde_json::to_vec(&info)?;
         db.insert(id.as_bytes(), info_bytes)?;
     }
+    info!("数据已序列化");
     if should_flush {
         db.flush()?;
     }

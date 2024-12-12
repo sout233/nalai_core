@@ -423,10 +423,14 @@ pub async fn cancel_all_downloads() -> anyhow::Result<bool, String> {
         }
     }
 
+    info!("Cancel all downloads end，取消所有下载结束");
+
     match global_wrappers::save_all_to_sled(false).await {
         Ok(it) => it,
         Err(err) => return Err(err.to_string()),
     };
+
+    info!("Save all to sled end，保存所有到 sled 结束");
 
     Ok(true)
 }
