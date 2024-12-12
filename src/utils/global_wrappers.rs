@@ -81,14 +81,16 @@ pub(crate) async fn load_global_wrappers_from_sled() {
 }
 
 
-pub async fn save_all_to_sled() -> anyhow::Result<()> {
+pub async fn save_all_to_sled(should_flush: bool) -> anyhow::Result<()> {
     let db = sled::open("nalai_info_data.sled")?;
     let all_info = info::get_all_info().await;
     for (id, info) in all_info.iter() {
         let info_bytes = serde_json::to_vec(&info)?;
         db.insert(id.as_bytes(), info_bytes)?;
     }
-    db.flush()?;
+    if should_flush {
+        db.flush()?;
+    }
     info!("数据已保存到sled数据库");
     Ok(())
 }
