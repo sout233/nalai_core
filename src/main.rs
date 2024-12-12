@@ -15,7 +15,8 @@ async fn main() {
 
     info!("Starting server");
 
-    global_wrappers::load_global_wrappers_from_json().await;
+    // global_wrappers::load_global_wrappers_from_json().await;
+    global_wrappers::load_global_wrappers_from_sled().await;
 
     tokio::spawn(async {
         let router = Router::new()

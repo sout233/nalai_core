@@ -8,6 +8,8 @@ use tracing::info;
 pub(crate) static GLOBAL_WRAPPERS: Lazy<Arc<Mutex<HashMap<String, NalaiWrapper>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
+#[deprecated]
+#[allow(dead_code)]
 pub(crate) async fn load_global_wrappers_from_json() {
     let file_path = PathBuf::from("nalai_info_data.json");
     if file_path.exists() {
@@ -24,6 +26,8 @@ pub(crate) async fn load_global_wrappers_from_json() {
     }
 }
 
+#[deprecated]
+#[allow(dead_code)]
 pub(crate) async fn save_all_to_file() -> anyhow::Result<()> {
     tokio::spawn(async {
         let all_info = info::get_all_info().await;
@@ -44,4 +48,52 @@ pub(crate) async fn insert_to_global_wrappers(id: String, wrapper: NalaiWrapper)
     global_wrappers.insert(id, wrapper);
 
     // let _ = save_all_to_file().await;
+}
+
+// 一些重写的方法，从json换为sled数据库
+
+pub(crate) async fn load_global_wrappers_from_sled() {
+    let file_path = PathBuf::from("nalai_info_data.sled");
+    if !file_path.exists() {
+        return;
+    }
+
+    let db = sled::open(file_path).unwrap();
+
+    let all_info: HashMap<String, NalaiDownloadInfo> = db.iter()
+    .filter_map(|result| result.ok()) // 处理可能的错误
+    .map(|(k, v)| {
+        let id = String::from_utf8(k.to_vec()).expect("Invalid UTF-8 sequence");
+        let info: NalaiDownloadInfo = serde_json::from_slice(&v).expect("Failed to deserialize NalaiDownloadInfo");
+        (id, info)
+    })
+    .collect();
+
+    let mut lock = GLOBAL_WRAPPERS.lock().await;
+    for (id, info) in all_info.iter() {
+        let wrapper = NalaiWrapper {
+            downloader: None,
+            info: info.clone(),
+        };
+        lock.insert(id.clone(), wrapper);
+    }
+    info!("数据已从sled数据库加载");
+}
+
+
+pub async fn save_all_to_sled(should_flush: bool) -> anyhow::Result<()> {
+    let db = sled::open("nalai_info_data.sled")?;
+    info!("开始保存数据到sled数据库");
+    let all_info = info::get_all_info().await;
+    info!("获取数据成功");
+    for (id, info) in all_info.iter() {
+        let info_bytes = serde_json::to_vec(&info)?;
+        db.insert(id.as_bytes(), info_bytes)?;
+    }
+    info!("数据已序列化");
+    if should_flush {
+        db.flush()?;
+    }
+    info!("数据已保存到sled数据库");
+    Ok(())
 }
