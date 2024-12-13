@@ -19,15 +19,15 @@ pub async fn exit_api(_req: &mut Request, res: &mut Response) {
         Err(e) => {
             eprintln!("保存下载记录失败: {}", e);
             let result = NalaiResult::new(
-                false,
                 StatusCode::INTERNAL_SERVER_ERROR,
+                Some("Error saving download records to sled"),
                 json!({"error":e.to_string()}),
             );
             res.render(Json(result));
         }
         _ => {
             info!("下载记录已保存");
-            let result = NalaiResult::new(true, StatusCode::OK, Value::Null);
+            let result = NalaiResult::new(StatusCode::OK,Some("Exit signal received"), Value::Null);
             res.render(Json(result));
         }
     }
