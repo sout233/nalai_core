@@ -4,7 +4,7 @@ use crate::{
         nalai_download_info::NalaiDownloadInfo,
         nalai_result::NalaiResult,
         nalai_wrapper::NalaiWrapper,
-        status_wrapper::StatusWrapper,
+        status_wrapper::StatusWrapperKind,
     },
     utils::{
         global_wrappers::{self, get_wrapper_by_id},
@@ -103,12 +103,12 @@ async fn start_download(
             // let downloader = downloader.unwrap();
             // let mut status_state = downloader.lock().await.get_downloading_state().unwrap().upgrade().unwrap();
             let status = wrapper.as_ref().clone().unwrap().info.status.clone();
-            info!("status is {}", status);
-            if status == StatusWrapper::Running {
+            info!("status is {}", status.kind);
+            if status.kind == StatusWrapperKind::Running {
                 info!("Download task already running，下载任务已运行");
                 return id.clone();
             } else {
-                wrapper.clone().unwrap().info.status = StatusWrapper::Running;
+                wrapper.clone().unwrap().info.status.kind = StatusWrapperKind::Running;
                 global_wrappers::insert_to_global_wrappers(id.clone(), wrapper.clone().unwrap())
                     .await;
             }
@@ -153,7 +153,7 @@ async fn start_download(
                 }
 
                 // 防止客户端获取的状态不正确
-                original_info.status = StatusWrapper::Running;
+                original_info.status.kind = StatusWrapperKind::Running;
 
                 async move {
                     let total_len = total_size_future.await;
@@ -296,6 +296,13 @@ async fn start_download(
                 let mut lock = global_wrappers::GLOBAL_WRAPPERS.lock().await;
                 if let Some(wrapper) = lock.get_mut(&id3.clone()) {
                     wrapper.info.status = result.clone();
+                } else {
+                    let mut wrapper = NalaiWrapper {
+                        downloader: None,
+                        info: NalaiDownloadInfo::default(),
+                    };
+                    wrapper.info.status = result.clone();
+                    lock.insert(id3.clone(), wrapper);
                 }
             }
 
@@ -345,8 +352,8 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
         None => return Err(format!("No such download id: {}", id)),
     };
 
-    match status {
-        StatusWrapper::NoStart => {
+    match status.kind {
+        StatusWrapperKind::NoStart => {
             // 未开始下载，直接开始下载
             let url = Url::parse(&wrapper.info.url).unwrap();
             let save_dir = PathBuf::from(&wrapper.info.save_dir);
@@ -356,17 +363,17 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
 
             Ok((true, true))
         }
-        StatusWrapper::Running => {
+        StatusWrapperKind::Running => {
             // 正在下载，取消下载
             cancel_download(id).await?;
             Ok((true, false))
         }
-        StatusWrapper::Pending => {
+        StatusWrapperKind::Pending => {
             // 等待下载，取消下载
             cancel_download(id).await?;
             Ok((true, false))
         }
-        StatusWrapper::Error => {
+        StatusWrapperKind::Error => {
             // 下载出错，重新开始下载
             let url = Url::parse(&wrapper.info.url).unwrap();
             let save_dir = PathBuf::from(&wrapper.info.save_dir);
@@ -376,7 +383,7 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
 
             Ok((true, true))
         }
-        StatusWrapper::Finished => {
+        StatusWrapperKind::Finished => {
             // 下载完成，不做任何操作
             Ok((false, false))
         }
@@ -414,8 +421,8 @@ pub async fn cancel_all_downloads() -> anyhow::Result<bool, String> {
         let lock = global_wrappers::GLOBAL_WRAPPERS.lock().await;
         for (_, wrapper) in lock.iter() {
             if !wrapper.downloader.is_none() {
-                if wrapper.info.status == StatusWrapper::Running
-                    || wrapper.info.status == StatusWrapper::Pending
+                if wrapper.info.status.kind == StatusWrapperKind::Running
+                    || wrapper.info.status.kind == StatusWrapperKind::Pending
                 {
                     let a = wrapper.downloader.as_ref().unwrap();
                     a.lock().await.cancel().await;

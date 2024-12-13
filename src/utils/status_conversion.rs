@@ -1,5 +1,5 @@
+use crate::models::status_wrapper::{StatusWrapper, StatusWrapperKind};
 use http_downloader::{status_tracker::DownloaderStatus, DownloadError, DownloadingEndCause};
-use crate::models::status_wrapper::StatusWrapper;
 
 pub trait IntoStatusWrapper {
     fn into_status_wrapper(self) -> StatusWrapper;
@@ -18,11 +18,13 @@ impl From<DownloaderStatus> for DownloaderStatusWrapper {
 impl IntoStatusWrapper for DownloaderStatusWrapper {
     fn into_status_wrapper(self) -> StatusWrapper {
         match self.0 {
-            DownloaderStatus::NoStart => StatusWrapper::NoStart,
-            DownloaderStatus::Running => StatusWrapper::Running,
-            DownloaderStatus::Pending(_) => StatusWrapper::Pending,
-            DownloaderStatus::Error(_e) => StatusWrapper::Error,
-            DownloaderStatus::Finished => StatusWrapper::Finished,
+            DownloaderStatus::NoStart => StatusWrapper::new(StatusWrapperKind::NoStart),
+            DownloaderStatus::Running => StatusWrapper::new(StatusWrapperKind::Running),
+            DownloaderStatus::Pending(_) => StatusWrapper::new(StatusWrapperKind::Pending),
+            DownloaderStatus::Error(e) => {
+                StatusWrapper::new(StatusWrapperKind::Error).with_message(e)
+            }
+            DownloaderStatus::Finished => StatusWrapper::new(StatusWrapperKind::Finished),
         }
     }
 }
@@ -30,8 +32,10 @@ impl IntoStatusWrapper for DownloaderStatusWrapper {
 impl IntoStatusWrapper for DownloadingEndCause {
     fn into_status_wrapper(self) -> StatusWrapper {
         match self {
-            DownloadingEndCause::DownloadFinished => StatusWrapper::Finished,
-            DownloadingEndCause::Cancelled => StatusWrapper::NoStart,
+            DownloadingEndCause::DownloadFinished => {
+                StatusWrapper::new(StatusWrapperKind::Finished)
+            }
+            DownloadingEndCause::Cancelled => StatusWrapper::new(StatusWrapperKind::NoStart),
         }
     }
 }
@@ -39,7 +43,38 @@ impl IntoStatusWrapper for DownloadingEndCause {
 impl IntoStatusWrapper for DownloadError {
     fn into_status_wrapper(self) -> StatusWrapper {
         match self {
-            _ => StatusWrapper::Error,
+            DownloadError::Other(error) => {
+                StatusWrapper::new(StatusWrapperKind::Error).with_message(error.to_string())
+            }
+            DownloadError::ArchiveDataLoadError(error) => {
+                StatusWrapper::new(StatusWrapperKind::Error).with_message(error.to_string())
+            }
+            DownloadError::IoError(error) => {
+                StatusWrapper::new(StatusWrapperKind::Error).with_message(error.to_string())
+            }
+            DownloadError::JoinError(join_error) => {
+                StatusWrapper::new(StatusWrapperKind::Error).with_message(join_error.to_string())
+            }
+            DownloadError::ChunkRemoveFailed(_) => StatusWrapper::new(StatusWrapperKind::Error)
+                .with_message("Failed to remove chunk file"),
+            DownloadError::DownloadingChunkRemoveFailed(_) => {
+                StatusWrapper::new(StatusWrapperKind::Error)
+                    .with_message("Failed to remove downloading chunk file")
+            }
+            DownloadError::HttpRequestFailed(error) => {
+                StatusWrapper::new(StatusWrapperKind::Error).with_message(error.to_string())
+            }
+            DownloadError::HttpRequestResponseInvalid(cause, response) => {
+                StatusWrapper::new(StatusWrapperKind::Error).with_message(format!(
+                    "Invalid http response: {}, response: {}",
+                    format!("{:?}", cause),
+                    format!("{:?}", response)
+                ))
+            }
+            DownloadError::ServerFileAlreadyChanged => StatusWrapper::new(StatusWrapperKind::Error)
+                .with_message("Server file already changed"),
+            DownloadError::RedirectionTimesTooMany => StatusWrapper::new(StatusWrapperKind::Error)
+                .with_message("Redirection times too many"),
         }
     }
 }
