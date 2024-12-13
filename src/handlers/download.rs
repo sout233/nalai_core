@@ -44,7 +44,7 @@ pub async fn start_download_api(req: &mut Request, res: &mut Response) {
 
     let id = start_download(&url, &save_dir, file_name, pre_id).await;
 
-    let result = NalaiResult::new(true, StatusCode::OK, json!({"id": &id}));
+    let result = NalaiResult::new(StatusCode::OK, None, json!({"id": &id}));
     res.render(Json(result));
 }
 
@@ -316,20 +316,16 @@ pub async fn cancel_or_start_download_api(req: &mut Request, res: &mut Response)
     let result = match cancel_or_start_download(&id).await {
         Ok((success, running)) => {
             if success {
-                NalaiResult::new(true, StatusCode::OK, json!({"running": running}))
+                NalaiResult::new(StatusCode::OK, None, json!({"running": running}))
             } else {
                 NalaiResult::new(
-                    false,
                     StatusCode::BAD_REQUEST,
+                    None,
                     json!({"error": "Task is Finished or Error"}),
                 )
             }
         }
-        Err(e) => NalaiResult::new(
-            false,
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({"error": e}),
-        ),
+        Err(e) => NalaiResult::new(StatusCode::INTERNAL_SERVER_ERROR, None, json!({"error": e})),
     };
     res.render(Json(result));
 }
@@ -468,18 +464,21 @@ pub async fn delete_download_api(req: &mut Request, res: &mut Response) {
         Ok(success) => {
             let all_info = info::get_all_info().await;
             if success {
-                let result = NalaiResult::new(true, StatusCode::OK, to_value(all_info).unwrap());
+                let result = NalaiResult::new(StatusCode::OK, None, to_value(all_info).unwrap());
                 res.render(Json(result));
             } else {
-                let result =
-                    NalaiResult::new(false, StatusCode::NOT_FOUND, to_value(all_info).unwrap());
+                let result = NalaiResult::new(
+                    StatusCode::NOT_FOUND,
+                    Some("No such download id"),
+                    to_value(all_info).unwrap(),
+                );
                 res.render(Json(result));
             }
         }
         Err(e) => {
             let result = NalaiResult::new(
-                false,
                 StatusCode::INTERNAL_SERVER_ERROR,
+                Some("Internal Server Error"),
                 json!({"error": e}),
             );
 
@@ -495,17 +494,21 @@ pub async fn cancel_download_api(req: &mut Request, res: &mut Response) {
     match cancel_download(&id).await {
         Ok(success) => {
             if success {
-                let result = NalaiResult::new(true, StatusCode::OK, Value::Null);
+                let result = NalaiResult::new(StatusCode::OK, None, Value::Null);
                 res.render(Json(result));
             } else {
-                let result = NalaiResult::new(false, StatusCode::NOT_FOUND, Value::Null);
+                let result = NalaiResult::new(
+                    StatusCode::NOT_FOUND,
+                    Some("No such download id"),
+                    Value::Null,
+                );
                 res.render(Json(result));
             }
         }
         Err(e) => {
             let result = NalaiResult::new(
-                false,
                 StatusCode::INTERNAL_SERVER_ERROR,
+                Some("Internal Server Error"),
                 json!({"error": e}),
             );
             res.render(Json(result));

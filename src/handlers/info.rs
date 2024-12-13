@@ -31,18 +31,18 @@ pub async fn get_info_api(req: &mut Request, res: &mut Response) {
             let info = match get_info(&id).await {
                 Some(info) => info,
                 None => {
-                    let result = NalaiResult::new(false, StatusCode::NOT_FOUND, Value::Null);
+                    let result = NalaiResult::new(StatusCode::NOT_FOUND,Some("No such id found") ,Value::Null);
                     res.render(Json(result));
                     return;
                 }
             };
 
-            let result = NalaiResult::new(true, StatusCode::OK, to_value(info).unwrap());
+            let result = NalaiResult::new(StatusCode::OK,Some("Info found") ,to_value(info).unwrap());
 
             res.render(Json(result));
         }
         None => {
-            let result = NalaiResult::new(false, StatusCode::BAD_REQUEST, Value::Null);
+            let result = NalaiResult::new(StatusCode::BAD_REQUEST,Some("No id provided"), Value::Null);
 
             res.render(Json(result));
         }
@@ -54,7 +54,7 @@ pub async fn get_all_info_api(_req: &mut Request, res: &mut Response) {
     // global_wrappers::save_all_to_file().await.unwrap();
     global_wrappers::save_all_to_sled(false).await.unwrap();
     let all_info = get_all_info().await;
-    let result = NalaiResult::new(true, StatusCode::OK, to_value(all_info).unwrap());
+    let result = NalaiResult::new( StatusCode::OK,Some("All info found"), to_value(all_info).unwrap());
     res.render(Json(result));
 }
 
