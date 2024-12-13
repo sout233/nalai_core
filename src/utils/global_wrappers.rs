@@ -61,11 +61,11 @@ pub(crate) async fn load_global_wrappers_from_sled() {
     let db = sled::open(file_path).unwrap();
 
     let all_info: HashMap<String, NalaiDownloadInfo> = db.iter()
-    .filter_map(|result| result.ok()) // 处理可能的错误
-    .map(|(k, v)| {
-        let id = String::from_utf8(k.to_vec()).expect("Invalid UTF-8 sequence");
-        let info: NalaiDownloadInfo = serde_json::from_slice(&v).expect("Failed to deserialize NalaiDownloadInfo");
-        (id, info)
+    .filter_map(|result| result.ok()) // 处理可能的错误，多过滤一次以省略无效数据（大聪明）
+    .filter_map(|(k, v)| {
+        let id = String::from_utf8(k.to_vec()).ok()?;
+        let info: NalaiDownloadInfo = serde_json::from_slice(&v).ok()?;
+        Some((id, info))
     })
     .collect();
 
