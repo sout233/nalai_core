@@ -58,7 +58,17 @@ pub(crate) async fn load_global_wrappers_from_sled() {
         return;
     }
 
-    let db = sled::open(file_path).unwrap();
+    let db = match sled::open(file_path){
+        Ok(db) => db,
+        Err(e) => {
+            info!("打开sled数据库失败: {}", e);
+            info!("正在备份原始数据库到nalai_info_data.sled.bak");
+            std::fs::rename("nalai_info_data.sled", "nalai_info_data.sled.bak").expect("备份失败");
+            info!("备份完成，正在重新创建数据库");
+            sled::open("nalai_info_data.sled").unwrap()
+        }
+    };
+
 
     let all_info: HashMap<String, NalaiDownloadInfo> = db.iter()
     .filter_map(|result| result.ok()) // 处理可能的错误，多过滤一次以省略无效数据（大聪明）
