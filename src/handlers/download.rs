@@ -42,13 +42,14 @@ pub async fn start_download_api(req: &mut Request, res: &mut Response) {
     let url = Url::parse(&url).unwrap();
     let pre_id = req.query::<String>("id");
     let file_name = req.query::<String>("file_name");
-    let headers = req.query::<String>("headers");
-    let new_headers = headers.map(|s| {
-        let headers: HashMap<String, String> = serde_json::from_str(&s).unwrap();
-        headers
-    });
+    let headers_raw = req.query::<String>("headers").unwrap_or_default();
+    let headers_utf8 = general_purpose::STANDARD
+        .decode(headers_raw.as_bytes())
+        .unwrap_or(vec![]);
+    let headers = String::from_utf8(headers_utf8).unwrap_or_default();
+    let headers: HashMap<String, String> = serde_json::from_str(&headers).unwrap();
 
-    let id = start_download(&url, &save_dir, file_name, pre_id, new_headers).await;
+    let id = start_download(&url, &save_dir, file_name, pre_id, Some(headers)).await;
 
     let result = NalaiResult::new(StatusCode::OK, None, json!({"id": &id}));
     res.render(Json(result));
@@ -384,7 +385,14 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
             let file_name = Some(wrapper.info.file_name.clone());
             let headers = wrapper.info.headers.clone();
 
-            start_download(&url, &save_dir, file_name, Some(id.to_string()),Some(headers)).await;
+            start_download(
+                &url,
+                &save_dir,
+                file_name,
+                Some(id.to_string()),
+                Some(headers),
+            )
+            .await;
 
             Ok((true, true))
         }
@@ -405,7 +413,14 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
             let file_name = Some(wrapper.info.file_name.clone());
             let headers = wrapper.info.headers.clone();
 
-            start_download(&url, &save_dir, file_name, Some(id.to_string()),Some(headers)).await;
+            start_download(
+                &url,
+                &save_dir,
+                file_name,
+                Some(id.to_string()),
+                Some(headers),
+            )
+            .await;
 
             Ok((true, true))
         }
