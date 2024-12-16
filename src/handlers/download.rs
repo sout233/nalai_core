@@ -23,6 +23,7 @@ use http_downloader::{
 use salvo::prelude::*;
 use serde_json::{json, to_value, Value};
 use std::{
+    collections::HashMap,
     num::{NonZeroU8, NonZeroUsize},
     path::PathBuf,
     sync::Arc,
@@ -41,8 +42,13 @@ pub async fn start_download_api(req: &mut Request, res: &mut Response) {
     let url = Url::parse(&url).unwrap();
     let pre_id = req.query::<String>("id");
     let file_name = req.query::<String>("file_name");
+    let headers = req.query::<String>("headers");
+    let new_headers = headers.map(|s| {
+        let headers: HashMap<String, String> = serde_json::from_str(&s).unwrap();
+        headers
+    });
 
-    let id = start_download(&url, &save_dir, file_name, pre_id).await;
+    let id = start_download(&url, &save_dir, file_name, pre_id, new_headers).await;
 
     let result = NalaiResult::new(StatusCode::OK, None, json!({"id": &id}));
     res.render(Json(result));
@@ -53,13 +59,25 @@ async fn start_download(
     save_dir: &PathBuf,
     file_name: Option<String>,
     mut id: Option<String>,
+    headers: Option<HashMap<String, String>>,
 ) -> String {
+    let mut headers_map = headers::HeaderMap::new();
+    if let Some(new_headers) = headers {
+        for (key, value) in new_headers {
+            if let Ok(header_name) = headers::HeaderName::try_from(key) {
+                if let Ok(header_value) = headers::HeaderValue::from_str(&value) {
+                    headers_map.insert(header_name, header_value);
+                }
+            }
+        }
+    }
     let (downloader, (mut status_state, mut speed_state, _speed_limiter, ..)) =
         HttpDownloaderBuilder::new(url.clone(), save_dir.clone())
             .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
             .download_connection_count(NonZeroU8::new(3).unwrap())
             .downloaded_len_send_interval(Some(Duration::from_millis(100)))
             .file_name(file_name)
+            .header_map(headers_map)
             .build((
                 // 下载状态追踪扩展
                 // by cargo feature "status-tracker" enable
@@ -184,6 +202,8 @@ async fn start_download(
                                 .collect();
                             let chunks = chunk_wrapper::merge_chunks(original_chunks, chunks);
 
+                            let original_headers = original_info.headers.clone();
+
                             info!(
                                 "{} Progress: {} %，{}/{}",
                                 file_name.clone(),
@@ -208,6 +228,7 @@ async fn start_download(
                                     save_dir: config.save_dir.to_str().unwrap().to_string(),
                                     create_time: original_info.create_time,
                                     chunks: chunks,
+                                    headers: original_headers,
                                 },
                             };
 
@@ -238,6 +259,8 @@ async fn start_download(
                                 .collect();
                             let chunks = chunk_wrapper::merge_chunks(original_chunks, chunks);
 
+                            let original_headers = original_info.headers.clone();
+
                             let wrapper = NalaiWrapper {
                                 downloader: Some(downloader.clone()),
                                 info: NalaiDownloadInfo {
@@ -252,6 +275,7 @@ async fn start_download(
                                     save_dir: config.save_dir.to_str().unwrap().to_string(),
                                     create_time: original_info.create_time,
                                     chunks: chunks,
+                                    headers: original_headers,
                                 },
                             };
 
@@ -358,8 +382,9 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
             let url = Url::parse(&wrapper.info.url).unwrap();
             let save_dir = PathBuf::from(&wrapper.info.save_dir);
             let file_name = Some(wrapper.info.file_name.clone());
+            let headers = wrapper.info.headers.clone();
 
-            start_download(&url, &save_dir, file_name, Some(id.to_string())).await;
+            start_download(&url, &save_dir, file_name, Some(id.to_string()),Some(headers)).await;
 
             Ok((true, true))
         }
@@ -378,8 +403,9 @@ async fn cancel_or_start_download(id: &str) -> Result<(bool, bool), String> {
             let url = Url::parse(&wrapper.info.url).unwrap();
             let save_dir = PathBuf::from(&wrapper.info.save_dir);
             let file_name = Some(wrapper.info.file_name.clone());
+            let headers = wrapper.info.headers.clone();
 
-            start_download(&url, &save_dir, file_name, Some(id.to_string())).await;
+            start_download(&url, &save_dir, file_name, Some(id.to_string()),Some(headers)).await;
 
             Ok((true, true))
         }
