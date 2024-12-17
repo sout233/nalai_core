@@ -47,7 +47,7 @@ pub async fn start_download_api(req: &mut Request, res: &mut Response) {
         .decode(headers_raw.as_bytes())
         .unwrap_or(vec![]);
     let headers = String::from_utf8(headers_utf8).unwrap_or_default();
-    let headers: HashMap<String, String> = serde_json::from_str(&headers).unwrap();
+    let headers: HashMap<String, String> = serde_json::from_str(&headers).unwrap_or_default();
 
     let id = start_download(&url, &save_dir, file_name, pre_id, Some(headers)).await;
 
