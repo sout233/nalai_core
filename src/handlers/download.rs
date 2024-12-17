@@ -23,11 +23,7 @@ use http_downloader::{
 use salvo::prelude::*;
 use serde_json::{json, to_value, Value};
 use std::{
-    collections::HashMap,
-    num::{NonZeroU8, NonZeroUsize},
-    path::PathBuf,
-    sync::Arc,
-    time::Duration,
+    collections::HashMap, num::{NonZeroU8, NonZeroUsize}, path::PathBuf, sync::Arc, thread, time::Duration
 };
 use tokio::sync::Mutex;
 use tracing::info;
@@ -47,7 +43,8 @@ pub async fn start_download_api(req: &mut Request, res: &mut Response) {
         .decode(headers_raw.as_bytes())
         .unwrap_or(vec![]);
     let headers = String::from_utf8(headers_utf8).unwrap_or_default();
-    let headers: HashMap<String, String> = serde_json::from_str(&headers).unwrap_or_default();
+    let headers: HashMap<String, String> = serde_json::from_str(&headers).unwrap();
+    info!("headers is {:?}", headers.clone());
 
     let id = start_download(&url, &save_dir, file_name, pre_id, Some(headers)).await;
 
@@ -203,7 +200,14 @@ async fn start_download(
                                 .collect();
                             let chunks = chunk_wrapper::merge_chunks(original_chunks, chunks);
 
-                            let original_headers = original_info.headers.clone();
+                            let headers_map = d.config().header_map.clone();
+                            let mut original_headers = HashMap::new(); 
+                            for (key, value) in headers_map{
+                                if let Some(header_name) = key {
+                                    let header_value = value.to_str().unwrap().to_string();
+                                    original_headers.insert(header_name.to_string(), header_value);
+                                }
+                            }                      
 
                             info!(
                                 "{} Progress: {} %，{}/{}",
