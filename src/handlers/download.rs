@@ -23,7 +23,7 @@ use http_downloader::{
 use salvo::prelude::*;
 use serde_json::{json, to_value, Value};
 use std::{
-    collections::HashMap, num::{NonZeroU8, NonZeroUsize}, path::PathBuf, sync::Arc, thread, time::Duration
+    collections::HashMap, num::{NonZeroU8, NonZeroUsize}, path::PathBuf, sync::Arc, time::Duration
 };
 use tokio::sync::Mutex;
 use tracing::info;
@@ -72,7 +72,7 @@ async fn start_download(
     let (downloader, (mut status_state, mut speed_state, _speed_limiter, ..)) =
         HttpDownloaderBuilder::new(url.clone(), save_dir.clone())
             .chunk_size(NonZeroUsize::new(1024 * 1024 * 10).unwrap()) // 块大小
-            .download_connection_count(NonZeroU8::new(3).unwrap())
+            .download_connection_count(NonZeroU8::new(8).unwrap())
             .downloaded_len_send_interval(Some(Duration::from_millis(100)))
             .file_name(file_name)
             .header_map(headers_map)
