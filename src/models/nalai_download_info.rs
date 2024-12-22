@@ -1,4 +1,4 @@
-use std::{num::NonZero, time::SystemTime};
+use std::{collections::HashMap, num::NonZero, time::SystemTime};
 
 use serde::{Deserialize, Serialize};
 use crate::models::chunk_wrapper::ChunkWrapper;
@@ -15,6 +15,7 @@ pub(crate) struct NalaiDownloadInfo {
     pub(crate) save_dir: String,
     pub(crate) create_time: SystemTime,
     pub(crate) chunks: Vec<ChunkWrapper>,
+    pub(crate) headers: HashMap<String, String>,
 }
 
 impl Default for NalaiDownloadInfo {
@@ -29,6 +30,7 @@ impl Default for NalaiDownloadInfo {
             save_dir: Default::default(),
             create_time: SystemTime::now(),
             chunks: Default::default(),
+            headers: Default::default(),
         }
     }
 }
