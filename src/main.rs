@@ -60,7 +60,7 @@ async fn main() {
 
 fn init_tracing() -> WorkerGuard {
     // 创建或打开一个文件用于写入日志
-    let file_appender = tracing_appender::rolling::daily("./logs", "app.log");
+    let file_appender = tracing_appender::rolling::daily("./logs", "nalai_core.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     // 设置环境过滤器，默认为 info 级别
