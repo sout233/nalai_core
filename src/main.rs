@@ -1,6 +1,8 @@
-use std::{thread, time::Duration};
+use std::{io, thread, time::Duration};
 
 use salvo::prelude::*;
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use utils::global_wrappers;
 use tracing::info;
 
@@ -11,7 +13,7 @@ mod utils;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    let _guard = init_tracing(); // 调用此函数时会返回一个守护进程，确保程序结束前日志被刷新
 
     info!("Starting server");
 
@@ -53,4 +55,42 @@ async fn main() {
     loop {
         thread::sleep(Duration::from_secs(1));
     }
+}
+
+
+fn init_tracing() -> WorkerGuard {
+    // 创建或打开一个文件用于写入日志
+    let file_appender = tracing_appender::rolling::daily("./logs", "app.log");
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+    // 设置环境过滤器，默认为 info 级别
+    let env_filter = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new("info"))
+        .unwrap();
+
+    // 配置文件格式化输出
+    let file_layer = fmt::layer()
+        .with_writer(non_blocking)
+        .with_ansi(false) // 关闭 ANSI 颜色编码，适用于文件输出
+        .with_level(true) // 显示日志级别
+        .with_target(true) // 显示目标模块
+        .with_thread_ids(true)
+        .pretty(); // 显示线程 ID
+
+    // 配置控制台格式化输出
+    let console_layer = fmt::layer()
+        .with_writer(io::stdout)
+        .with_ansi(true) // 控制台通常支持 ANSI 颜色编码
+        .with_level(true)
+        .with_target(true)
+        .with_thread_ids(true);
+
+    // 组合过滤器和格式化层
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(file_layer)
+        .with(console_layer)
+        .init();
+
+    guard
 }
