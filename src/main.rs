@@ -30,7 +30,8 @@ async fn main() {
             .push(Router::with_path("/all_info").get(handlers::info::get_all_info_api))
             .push(Router::with_path("/sorc").post(handlers::download::cancel_or_start_download_api))
             .push(Router::with_path("checkhealth").get(handlers::health::check_health_api))
-            .push(Router::with_path("exit").get(handlers::exit::exit_api));
+            .push(Router::with_path("exit").get(handlers::exit::exit_api))
+            .push(Router::with_path("ws").goal(handlers::ws::connect));
 
         let acceptor = TcpListener::new("127.0.0.1:13088").bind().await;
 
