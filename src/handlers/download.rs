@@ -1,15 +1,14 @@
 use crate::{
-    models::{
+    handlers::ws, models::{
         chunk_wrapper::{self, ChunkWrapper},
         nalai_download_info::NalaiDownloadInfo,
         nalai_result::NalaiResult,
         nalai_wrapper::NalaiWrapper,
         status_wrapper::StatusWrapperKind,
-    },
-    utils::{
+    }, utils::{
         global_wrappers::{self, get_wrapper_by_id},
         status_conversion::{self, DownloaderStatusWrapper},
-    },
+    }
 };
 use base64::{engine::general_purpose, Engine};
 use http_downloader::{
@@ -43,10 +42,9 @@ pub async fn start_download_api(req: &mut Request, res: &mut Response) {
         .decode(headers_raw.as_bytes())
         .unwrap_or(vec![]);
     let headers = String::from_utf8(headers_utf8).unwrap_or_default();
-    let headers: HashMap<String, String> = serde_json::from_str(&headers).unwrap();
+    let headers: Option<HashMap<String, String>> = serde_json::from_str(&headers).unwrap_or(None);
     info!("headers is {:?}", headers.clone());
-
-    let id = start_download(&url, &save_dir, file_name, pre_id, Some(headers)).await;
+    let id = start_download(&url, &save_dir, file_name, pre_id, headers).await;
 
     let result = NalaiResult::new(StatusCode::OK, None, json!({"id": &id}));
     res.render(Json(result));
@@ -237,7 +235,9 @@ async fn start_download(
                                 },
                             };
 
-                            global_wrappers::insert_to_global_wrappers(id.clone(), wrapper).await;
+                            global_wrappers::insert_to_global_wrappers(id.clone(), wrapper.clone()).await;
+                            let v =to_value(wrapper.info.clone()).unwrap();
+                            ws::send_value_to_client(&v).await;
                         }
                         tokio::time::sleep(Duration::from_millis(100)).await;
                     }
