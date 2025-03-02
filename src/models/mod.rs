@@ -4,3 +4,4 @@ pub mod nalai_wrapper;
 pub mod status_wrapper;
 pub mod chunk_wrapper;
 pub mod ws_query;
+pub mod ws_event;

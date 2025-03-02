@@ -1,19 +1,19 @@
 use std::{collections::HashMap, sync::atomic::AtomicUsize};
 
+use futures_util::{FutureExt, StreamExt};
 use once_cell::sync::Lazy;
 use salvo::{
     prelude::*,
     websocket::{Message, WebSocket},
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::sync::{mpsc, RwLock};
-use tracing::{error, info};
-use futures_util::{FutureExt, StreamExt};
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use tracing::{error, info};
 
 use crate::{
     handlers::info::{get_all_info, get_info},
-    models::ws_query,
+    models::{ws_event::{self, WSEvent}, ws_query},
 };
 
 type Clients = RwLock<HashMap<usize, mpsc::UnboundedSender<Result<Message, salvo::Error>>>>;
@@ -83,13 +83,13 @@ async fn handle_ws(mut ws: WebSocket) {
     });
     tokio::task::spawn(fut);
 
-    let fut = async move{
+    let fut = async move {
         let mut lock = ONLINE_CLIENTS.write().await;
         lock.insert(id, tx);
         info!("New client connected: {}", id);
         drop(lock);
     };
-    
+
     tokio::task::spawn(fut);
 
     // ws.send(Message::text("Welcome to Nalai!")).await.unwrap();
@@ -104,10 +104,10 @@ async fn handle_ws(mut ws: WebSocket) {
     // }
 }
 
-pub async fn send_value_to_client(msg: &Value) {
+pub async fn send_value_to_client(msg: &WSEvent) {
     for (id, tx) in ONLINE_CLIENTS.read().await.iter() {
         info!("Sending message to client {}", id);
-        if tx.send(Ok(Message::text(msg.to_string()))).is_err() {
+        if tx.send(Ok(Message::text(json!(msg).to_string()))).is_err() {
             error!("Failed to send message to client {}", id);
             // ONLINE_CLIENTS.write().await.remove(id);
         }

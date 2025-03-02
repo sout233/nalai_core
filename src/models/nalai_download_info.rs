@@ -16,6 +16,7 @@ pub(crate) struct NalaiDownloadInfo {
     pub(crate) create_time: SystemTime,
     pub(crate) chunks: Vec<ChunkWrapper>,
     pub(crate) headers: HashMap<String, String>,
+    pub(crate) id: String,
 }
 
 impl Default for NalaiDownloadInfo {
@@ -31,6 +32,7 @@ impl Default for NalaiDownloadInfo {
             create_time: SystemTime::now(),
             chunks: Default::default(),
             headers: Default::default(),
+            id: Default::default(),
         }
     }
 }

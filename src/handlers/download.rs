@@ -4,7 +4,7 @@ use crate::{
         nalai_download_info::NalaiDownloadInfo,
         nalai_result::NalaiResult,
         nalai_wrapper::NalaiWrapper,
-        status_wrapper::StatusWrapperKind,
+        status_wrapper::StatusWrapperKind, ws_event,
     }, utils::{
         global_wrappers::{self, get_wrapper_by_id},
         status_conversion::{self, DownloaderStatusWrapper},
@@ -232,11 +232,13 @@ async fn start_download(
                                     create_time: original_info.create_time,
                                     chunks: chunks,
                                     headers: original_headers,
+                                    id: id.clone(),
                                 },
                             };
 
                             global_wrappers::insert_to_global_wrappers(id.clone(), wrapper.clone()).await;
                             let v =to_value(wrapper.info.clone()).unwrap();
+                            let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadProgressChanged, v);
                             ws::send_value_to_client(&v).await;
                         }
                         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -281,10 +283,15 @@ async fn start_download(
                                     create_time: original_info.create_time,
                                     chunks: chunks,
                                     headers: original_headers,
+                                    id: id.clone(),
                                 },
                             };
 
-                            global_wrappers::insert_to_global_wrappers(id.clone(), wrapper).await;
+                            global_wrappers::insert_to_global_wrappers(id.clone(), wrapper.clone()).await;
+
+                            let v =to_value(wrapper.info.clone()).unwrap();
+                            let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadStatusChanged, v);
+                            ws::send_value_to_client(&v).await;
 
                             if let DownloaderStatus::Error(e) = status_state.status() {
                                 info!("Download error: {}", e);
