@@ -135,6 +135,8 @@ async fn start_download(
     tokio::spawn({
         let id = id.clone();
         let downloader = Arc::new(Mutex::new(downloader));
+        let status_state_clone1 = status_state.clone();
+        let status_state_clone2 = status_state.clone();
         async move {
             info!("Prepare download，准备下载");
             let download_future = downloader.lock().await.prepare_download().unwrap();
@@ -224,7 +226,7 @@ async fn start_download(
                                     url: url_text,
                                     status: status_conversion::convert_status(
                                         status_conversion::DownloaderStatusWrapper::from(
-                                            status_state.status(),
+                                            status_state_clone1.status(),
                                         ),
                                     ),
                                     speed: speed_state.download_speed(),
@@ -243,80 +245,19 @@ async fn start_download(
                         }
                         tokio::time::sleep(Duration::from_millis(100)).await;
                     }
-                    // 实则是接收状态更新的说
-                    while status_state.status_receiver.changed().await.is_ok() {
-                        println!("State update: {:?}", status_state.status());
-                        let progress = *downloaded_len_receiver.borrow();
-
-                        if let Some(total_len) = total_len {
-                            let full_path = downloader.lock().await.get_file_path();
-
-                            let file_name =
-                                full_path.file_name().unwrap().to_str().unwrap().to_string();
-
-                            let d = downloader.lock().await;
-                            let config = d.config();
-                            let url_text = config.url.to_string();
-
-                            let original_chunks: Vec<ChunkWrapper> = original_info.chunks.clone();
-                            let chunks: Vec<Arc<http_downloader::ChunkItem>> = d.get_chunks().await;
-                            let chunks: Vec<ChunkWrapper> = chunks
-                                .iter()
-                                .map(|c| ChunkWrapper::from(c.clone()))
-                                .collect();
-                            let chunks = chunk_wrapper::merge_chunks(original_chunks, chunks);
-
-                            let original_headers = original_info.headers.clone();
-
-                            let wrapper = NalaiWrapper {
-                                downloader: Some(downloader.clone()),
-                                info: NalaiDownloadInfo {
-                                    downloaded_bytes: progress,
-                                    total_size: total_len,
-                                    file_name: file_name,
-                                    url: url_text,
-                                    status: status_conversion::convert_status(
-                                        DownloaderStatusWrapper::from(status_state.status()),
-                                    ),
-                                    speed: speed_state.download_speed(),
-                                    save_dir: config.save_dir.to_str().unwrap().to_string(),
-                                    create_time: original_info.create_time,
-                                    chunks: chunks,
-                                    headers: original_headers,
-                                    id: id.clone(),
-                                },
-                            };
-
-                            global_wrappers::insert_to_global_wrappers(id.clone(), wrapper.clone()).await;
-
-                            let v =to_value(wrapper.info.clone()).unwrap();
-                            let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadStatusChanged, v);
-                            ws::send_value_to_client(&v).await;
-
-                            if let DownloaderStatus::Error(e) = status_state.status() {
-                                info!("Download error: {}", e);
-                                break;
-                            }
-                            if let DownloaderStatus::Finished = status_state.status() {
-                                info!("Download finished");
-                                break;
-                            }
-                        }
-
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                    }
+                   
                     // 实则是接收下载速度的说
-                    while speed_state.receiver.changed().await.is_ok() {
-                        let speed = speed_state.download_speed();
-                        global_wrappers::GLOBAL_WRAPPERS
-                            .lock()
-                            .await
-                            .get_mut(&id2.clone())
-                            .unwrap()
-                            .info
-                            .speed = speed;
-                        info!("Download speed: {} bytes/s", speed)
-                    }
+                    // while speed_state.receiver.changed().await.is_ok() {
+                    //     let speed = speed_state.download_speed();
+                    //     global_wrappers::GLOBAL_WRAPPERS
+                    //         .lock()
+                    //         .await
+                    //         .get_mut(&id2.clone())
+                    //         .unwrap()
+                    //         .info
+                    //         .speed = speed;
+                    //     info!("Download speed: {} bytes/s", speed)
+                    // }
                 }
             });
 
@@ -332,6 +273,9 @@ async fn start_download(
                 let mut lock = global_wrappers::GLOBAL_WRAPPERS.lock().await;
                 if let Some(wrapper) = lock.get_mut(&id3.clone()) {
                     wrapper.info.status = result.clone();
+                    // let v =to_value(wrapper.info.clone()).unwrap();
+                    // let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadStatusChanged, v);
+                    // ws::send_value_to_client(&v).await;
                 } else {
                     let mut wrapper = NalaiWrapper {
                         downloader: None,
@@ -344,6 +288,23 @@ async fn start_download(
 
             info!("Downloading end cause: {:?}", result);
         }
+    });
+
+    tokio::spawn({
+        async move{
+         // 实则是接收状态更新的说
+         while status_state.status_receiver.changed().await.is_ok() {
+            println!("State update: {:?}", status_state.status());
+            let lock = global_wrappers::GLOBAL_WRAPPERS.lock().await;
+            let wrapper = match lock.get(&id2.clone()) {
+                Some(dl) => dl,
+                None => continue,
+            };
+            
+            let v =to_value(wrapper.info.clone()).unwrap();
+            let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadStatusChanged, v);
+            ws::send_value_to_client(&v).await;
+        }}
     });
 
     info!("Download task started，下载任务已启动");
