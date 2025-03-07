@@ -1,14 +1,17 @@
 use crate::{
-    handlers::ws, models::{
+    handlers::ws,
+    models::{
         chunk_wrapper::{self, ChunkWrapper},
         nalai_download_info::NalaiDownloadInfo,
         nalai_result::NalaiResult,
         nalai_wrapper::NalaiWrapper,
-        status_wrapper::StatusWrapperKind, ws_event,
-    }, utils::{
+        status_wrapper::StatusWrapperKind,
+        ws_event,
+    },
+    utils::{
         global_wrappers::{self, get_wrapper_by_id},
         status_conversion::{self, DownloaderStatusWrapper},
-    }
+    },
 };
 use base64::{engine::general_purpose, Engine};
 use http_downloader::{
@@ -22,7 +25,11 @@ use http_downloader::{
 use salvo::prelude::*;
 use serde_json::{json, to_value, Value};
 use std::{
-    collections::HashMap, num::{NonZeroU8, NonZeroUsize}, path::PathBuf, sync::Arc, time::Duration
+    collections::HashMap,
+    num::{NonZeroU8, NonZeroUsize},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
 };
 use tokio::sync::Mutex;
 use tracing::info;
@@ -201,13 +208,13 @@ async fn start_download(
                             let chunks = chunk_wrapper::merge_chunks(original_chunks, chunks);
 
                             let headers_map = d.config().header_map.clone();
-                            let mut original_headers = HashMap::new(); 
-                            for (key, value) in headers_map{
+                            let mut original_headers = HashMap::new();
+                            for (key, value) in headers_map {
                                 if let Some(header_name) = key {
                                     let header_value = value.to_str().unwrap().to_string();
                                     original_headers.insert(header_name.to_string(), header_value);
                                 }
-                            }                      
+                            }
 
                             info!(
                                 "{} Progress: {} %，{}/{}",
@@ -238,14 +245,18 @@ async fn start_download(
                                 },
                             };
 
-                            global_wrappers::insert_to_global_wrappers(id.clone(), wrapper.clone()).await;
-                            let v =to_value(wrapper.info.clone()).unwrap();
-                            let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadProgressChanged, v);
+                            global_wrappers::insert_to_global_wrappers(id.clone(), wrapper.clone())
+                                .await;
+                            let v = to_value(wrapper.info.clone()).unwrap();
+                            let v = ws_event::WSEvent::new(
+                                ws_event::WSEventType::DownloadProgressChanged,
+                                v,
+                            );
                             ws::send_value_to_client(&v).await;
                         }
                         tokio::time::sleep(Duration::from_millis(100)).await;
                     }
-                   
+
                     // 实则是接收下载速度的说
                     // while speed_state.receiver.changed().await.is_ok() {
                     //     let speed = speed_state.download_speed();
@@ -291,20 +302,21 @@ async fn start_download(
     });
 
     tokio::spawn({
-        async move{
-         // 实则是接收状态更新的说
-         while status_state.status_receiver.changed().await.is_ok() {
-            println!("State update: {:?}", status_state.status());
-            let lock = global_wrappers::GLOBAL_WRAPPERS.lock().await;
-            let wrapper = match lock.get(&id2.clone()) {
-                Some(dl) => dl,
-                None => continue,
-            };
-            
-            let v =to_value(wrapper.info.clone()).unwrap();
-            let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadStatusChanged, v);
-            ws::send_value_to_client(&v).await;
-        }}
+        async move {
+            // 实则是接收状态更新的说
+            while status_state.status_receiver.changed().await.is_ok() {
+                println!("State update: {:?}", status_state.status());
+                let lock = global_wrappers::GLOBAL_WRAPPERS.lock().await;
+                let wrapper = match lock.get(&id2.clone()) {
+                    Some(dl) => dl,
+                    None => continue,
+                };
+
+                let v = to_value(wrapper.info.clone()).unwrap();
+                let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadStatusChanged, v);
+                ws::send_value_to_client(&v).await;
+            }
+        }
     });
 
     info!("Download task started，下载任务已启动");
@@ -413,6 +425,10 @@ async fn cancel_download(id: &str) -> anyhow::Result<bool, String> {
             None => return Err(format!("No such download id: {}", id)),
         };
 
+        let v = to_value(wrapper.info.clone()).unwrap();
+        let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadStatusChanged, v);
+        ws::send_value_to_client(&v).await;
+
         let downloader = wrapper.downloader.clone();
         if !downloader.is_none() {
             downloader.unwrap().lock().await.cancel().await;
@@ -464,11 +480,16 @@ pub async fn delete_download(id: &str) -> anyhow::Result<bool, String> {
     let value = global_wrappers::GLOBAL_WRAPPERS.lock().await.remove(id);
 
     let r = match value {
-        Some(_) => {
+        Some(wrapper) => {
             let a: Result<bool, String> = match global_wrappers::save_all_to_sled(false).await {
                 Ok(_) => Ok(true),
                 Err(err) => return Err(err.to_string()),
             };
+
+            let v = to_value(wrapper.info.clone()).unwrap();
+            let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadStatusChanged, v);
+            ws::send_value_to_client(&v).await;
+
             a
         }
         None => Ok(false),
