@@ -241,7 +241,7 @@ async fn start_download(
                                     create_time: original_info.create_time,
                                     chunks: chunks,
                                     headers: original_headers,
-                                    id: id.clone(),
+                                    // id: id.clone(),
                                 },
                             };
 
@@ -250,6 +250,7 @@ async fn start_download(
                             let v = to_value(wrapper.info.clone()).unwrap();
                             let v = ws_event::WSEvent::new(
                                 ws_event::WSEventType::DownloadProgressChanged,
+                                Some(id.clone()),
                                 v,
                             );
                             ws::send_value_to_client(&v).await;
@@ -313,7 +314,11 @@ async fn start_download(
                 };
 
                 let v = to_value(wrapper.info.clone()).unwrap();
-                let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadStatusChanged, v);
+                let v = ws_event::WSEvent::new(
+                    ws_event::WSEventType::DownloadStatusChanged,
+                    Some(id2.clone()),
+                    v,
+                );
                 ws::send_value_to_client(&v).await;
             }
         }
@@ -426,8 +431,12 @@ async fn cancel_download(id: &str) -> anyhow::Result<bool, String> {
         };
 
         let v = to_value(wrapper.info.clone()).unwrap();
-        let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadStatusChanged, v);
-        ws::send_value_to_client(&v).await;
+        let v = ws_event::WSEvent::new(
+            ws_event::WSEventType::DownloadStatusChanged,
+            Some(id.to_string()),
+            v,
+        );
+        // ws::send_value_to_client(&v).await;
 
         let downloader = wrapper.downloader.clone();
         if !downloader.is_none() {
@@ -477,18 +486,24 @@ pub async fn delete_download(id: &str) -> anyhow::Result<bool, String> {
 
     cancel_download(id).await?;
 
+    info!("delete from wrappers，从 wrappers 中删除");
     let value = global_wrappers::GLOBAL_WRAPPERS.lock().await.remove(id);
 
     let r = match value {
         Some(wrapper) => {
-            let a: Result<bool, String> = match global_wrappers::save_all_to_sled(false).await {
+            info!("try to remove from sled，尝试从 sled 中移除");
+            let a: Result<bool, String> = match global_wrappers::save_all_to_sled(true).await {
                 Ok(_) => Ok(true),
                 Err(err) => return Err(err.to_string()),
             };
 
             let v = to_value(wrapper.info.clone()).unwrap();
-            let v = ws_event::WSEvent::new(ws_event::WSEventType::DownloadStatusChanged, v);
-            ws::send_value_to_client(&v).await;
+            let v = ws_event::WSEvent::new(
+                ws_event::WSEventType::DownloadStatusChanged,
+                Some(id.to_string()),
+                v,
+            );
+            // ws::send_value_to_client(&v).await;
 
             a
         }
@@ -501,9 +516,9 @@ pub async fn delete_download(id: &str) -> anyhow::Result<bool, String> {
 pub async fn delete_download_api(req: &mut Request, res: &mut Response) {
     let id = req.query::<String>("id").unwrap_or_default();
 
+    let all_info = info::get_all_info().await;
     match delete_download(&id).await {
         Ok(success) => {
-            let all_info = info::get_all_info().await;
             if success {
                 let result = NalaiResult::new(StatusCode::OK, None, to_value(all_info).unwrap());
                 res.render(Json(result));
@@ -519,8 +534,10 @@ pub async fn delete_download_api(req: &mut Request, res: &mut Response) {
         Err(e) => {
             let result = NalaiResult::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Some("Internal Server Error"),
-                json!({"error": e}),
+                // Some("Internal Server Error"),
+                // json!({"error": e}),
+                Some(&e.to_string()),
+                to_value(all_info).unwrap(),
             );
 
             res.render(Json(result));
